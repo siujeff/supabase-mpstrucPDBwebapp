@@ -3,11 +3,14 @@ import { supabase } from './supabaseClient'
 import ProteinViewer from './ProteinViewer'
 
 function App() {
-  const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [visibleViewers, setVisibleViewers] = useState({})
-  const [filterStatus, setFilterStatus] = useState('__ALL__')
-  const [sortDesc, setSortDesc] = useState(true)
+	const [data, setData] = useState([])
+	const [loading, setLoading] = useState(true)
+	const [visibleViewers, setVisibleViewers] = useState({})
+	const [filterStatus, setFilterStatus] = useState('__ALL__')
+	const [sortDesc, setSortDesc] = useState(true)
+	const [authorized, setAuthorized] = useState(false)
+	const [passwordInput, setPasswordInput] = useState('')
+	const correctPassword = process.env.REACT_APP_PROTECT_PASS
 
   useEffect(() => {
     fetchData()
