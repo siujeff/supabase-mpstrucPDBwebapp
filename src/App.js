@@ -3,18 +3,45 @@ import { supabase } from './supabaseClient'
 import ProteinViewer from './ProteinViewer'
 
 function App() {
-	const [data, setData] = useState([])
-	const [loading, setLoading] = useState(true)
-	const [visibleViewers, setVisibleViewers] = useState({})
-	const [filterStatus, setFilterStatus] = useState('__ALL__')
-	const [sortDesc, setSortDesc] = useState(true)
-	const [authorized, setAuthorized] = useState(false)
-	const [passwordInput, setPasswordInput] = useState('')
-	const correctPassword = process.env.REACT_APP_PROTECT_PASS
+  const [data, setData] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [visibleViewers, setVisibleViewers] = useState({})
+  const [filterStatus, setFilterStatus] = useState('__ALL__')
+  const [sortDesc, setSortDesc] = useState(true)
+  const [authorized, setAuthorized] = useState(false)
+  const [passwordInput, setPasswordInput] = useState('')
+  const correctPassword = process.env.REACT_APP_PROTECT_PASS
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  // 🔐 Lock gate — return early if unauthorized
+  if (!authorized) {
+    return (
+      <div style={{ padding: '80px', textAlign: 'center', fontFamily: 'Arial' }}>
+        <h2>🔐 Protected App</h2>
+        <input
+          type="password"
+          placeholder="Enter password"
+          value={passwordInput}
+          onChange={(e) => setPasswordInput(e.target.value)}
+          style={{ padding: '10px', fontSize: '16px' }}
+        />
+        <br /><br />
+        <button
+          style={{ padding: '10px 20px', fontSize: '16px' }}
+          onClick={() => {
+            if (passwordInput === correctPassword) {
+              setAuthorized(true)
+              setLoading(true)
+              fetchData()
+            } else {
+              alert('❌ Incorrect password')
+            }
+          }}
+        >
+          Unlock
+        </button>
+      </div>
+    )
+  }
 
   async function fetchData() {
     const { data, error } = await supabase
@@ -48,7 +75,7 @@ function App() {
 
   return (
     <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: '1200px', margin: '0 auto' }}>
-      {/* HEADER + FILTER BAR */}
+      {/* HEADER */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>🧬 PDB Entry Labeler</h1>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -56,7 +83,7 @@ function App() {
             Filter by Status:{' '}
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="__ALL__">(All)</option>
-			  <option value="__EMPTY__">(Blank)</option>
+              <option value="__EMPTY__">(Blank)</option>
               <option value="Yes">Yes</option>
               <option value="No">No</option>
               <option value="Maybe">Maybe</option>
@@ -71,16 +98,14 @@ function App() {
         </div>
       </div>
 
-      {/* DATA RECORDS */}
+      {/* ENTRIES */}
       {data
-.filter(row => {
-  const status = row.Status
-
-  if (filterStatus === '__ALL__') return true
-	if (filterStatus === '__EMPTY__') return typeof status === 'string' && status.trim() === ''
-  return status === filterStatus
-})
-
+        .filter(row => {
+          const status = row.Status
+          if (filterStatus === '__ALL__') return true
+          if (filterStatus === '__EMPTY__') return !status || status.trim() === ''
+          return status === filterStatus
+        })
         .sort((a, b) => {
           const dateA = new Date(a.LastUpdated)
           const dateB = new Date(b.LastUpdated)
@@ -151,7 +176,7 @@ function App() {
               </label>
             </div>
 
-            {/* RIGHT COLUMN: Static image */}
+            {/* RIGHT COLUMN */}
             <div>
               <img
                 src={`https://cdn.rcsb.org/images/structures/${row.structureid?.toLowerCase()}_assembly-1.jpeg`}
@@ -159,8 +184,6 @@ function App() {
                 style={{ width: '300px', border: '1px solid #eee' }}
                 onError={(e) => (e.target.style.display = 'none')}
               />
-
-              {/* Optional 3D viewer toggle */}
               {visibleViewers[row.ID] && row.structureid && (
                 <ProteinViewer
                   pdbUrl={`https://opm-assets.storage.googleapis.com/assembly/${row.structureid}Apath.pdb`}
