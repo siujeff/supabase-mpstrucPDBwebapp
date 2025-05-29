@@ -4,7 +4,7 @@ import ProteinViewer from './ProteinViewer'
 
 function App() {
   const [data, setData] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [visibleViewers, setVisibleViewers] = useState({})
   const [filterStatus, setFilterStatus] = useState('__ALL__')
   const [sortDesc, setSortDesc] = useState(true)
@@ -12,42 +12,15 @@ function App() {
   const [passwordInput, setPasswordInput] = useState('')
   const correctPassword = process.env.REACT_APP_PROTECT_PASS
 
-  // 🔐 Lock gate — return early if unauthorized
-  if (!authorized) {
-    return (
-      <div style={{ padding: '80px', textAlign: 'center', fontFamily: 'Arial' }}>
-        <h2>🔐 Protected App</h2>
-        <input
-          type="password"
-          placeholder="Enter password"
-          value={passwordInput}
-          onChange={(e) => setPasswordInput(e.target.value)}
-          style={{ padding: '10px', fontSize: '16px' }}
-        />
-        <br /><br />
-        <button
-          style={{ padding: '10px 20px', fontSize: '16px' }}
-          onClick={() => {
-            if (passwordInput === correctPassword) {
-              setAuthorized(true)
-              setLoading(true)
-              fetchData()
-            } else {
-              alert('❌ Incorrect password')
-            }
-          }}
-        >
-          Unlock
-        </button>
-      </div>
-    )
-  }
+  useEffect(() => {
+    fetchData()
+  }, [])
 
   async function fetchData() {
     const { data, error } = await supabase
       .from('pdb_USC_backup')
-      .select('ID, Status, memo, structureid, PubMed, PDB, UniProt, LastUpdated')
-      .order('LastUpdated', { ascending: false })
+      .select('ID, Status, memo, structureid, PubMed, PDB, UniProt, releaseDate, protein_type')
+      .order('releaseDate', { ascending: false })
 
     if (error) {
       console.error('Fetch error:', error)
@@ -71,11 +44,39 @@ function App() {
     }
   }
 
+  if (!authorized) {
+    return (
+      <div style={{ padding: '80px', textAlign: 'center', fontFamily: 'Arial' }}>
+        <h2>🔐 Protected App</h2>
+        <input
+          type="password"
+          placeholder="Enter password"
+          value={passwordInput}
+          onChange={(e) => setPasswordInput(e.target.value)}
+          style={{ padding: '10px', fontSize: '16px' }}
+        />
+        <br /><br />
+        <button
+          style={{ padding: '10px 20px', fontSize: '16px' }}
+          onClick={() => {
+            if (passwordInput === correctPassword) {
+              setAuthorized(true)
+            } else {
+              alert('❌ Incorrect password')
+            }
+          }}
+        >
+          Unlock
+        </button>
+      </div>
+    )
+  }
+
   if (loading) return <p style={{ padding: 20 }}>Loading data...</p>
 
   return (
     <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: '1200px', margin: '0 auto' }}>
-      {/* HEADER */}
+      {/* HEADER + FILTER BAR */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>🧬 PDB Entry Labeler</h1>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -84,12 +85,12 @@ function App() {
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="__ALL__">(All)</option>
               <option value="__EMPTY__">(Blank)</option>
-              <option value="Yes">Yes</option>
-              <option value="No">No</option>
-              <option value="Maybe">Maybe</option>
-              <option value="Already In">Already In</option>
-              <option value="Pubmed ready">Pubmed ready</option>
-              <option value="Ready for yes">Ready for yes</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+              <option value="maybe">Maybe</option>
+              <option value="already in">Already In</option>
+              <option value="pubmed ready">Pubmed ready</option>
+              <option value="ready for yes">Ready for yes</option>
             </select>
           </label>
           <button onClick={() => setSortDesc(prev => !prev)}>
@@ -98,17 +99,18 @@ function App() {
         </div>
       </div>
 
-      {/* ENTRIES */}
+      {/* DATA RECORDS */}
       {data
         .filter(row => {
-          const status = row.Status
-          if (filterStatus === '__ALL__') return true
-          if (filterStatus === '__EMPTY__') return !status || status.trim() === ''
-          return status === filterStatus
+          const status = (row.Status || '').trim().toLowerCase()
+          const filter = filterStatus.trim().toLowerCase()
+          if (filter === '__all__') return true
+          if (filter === '__empty__') return status === ''
+          return status === filter
         })
         .sort((a, b) => {
-          const dateA = new Date(a.LastUpdated)
-          const dateB = new Date(b.LastUpdated)
+          const dateA = new Date(a.releaseDate)
+          const dateB = new Date(b.releaseDate)
           return sortDesc ? dateB - dateA : dateA - dateB
         })
         .map(row => (
@@ -127,7 +129,7 @@ function App() {
             <div style={{ flex: 1, marginRight: 20 }}>
               <p><strong>ID:</strong> {row.ID}</p>
               <p><strong>Structure ID:</strong> {row.structureid}</p>
-              <p><strong>Last Updated:</strong> {row.LastUpdated?.split(' ')[0]}</p>
+              <p><strong>Release Date:</strong> {row.releaseDate?.split(' ')[0] || 'N/A'}</p>
 
               <label>
                 <input
@@ -141,6 +143,10 @@ function App() {
                   }
                 />{' '}
                 Show 3D structure
+                <span style={{ marginLeft: 10 }}>
+                  <strong>Uniprot protein type:</strong>{' '}
+                  <span style={{ fontStyle: 'italic' }}>{row.protein_type || 'N/A'}</span>
+                </span>
               </label>
 
               <p>
@@ -176,7 +182,7 @@ function App() {
               </label>
             </div>
 
-            {/* RIGHT COLUMN */}
+            {/* RIGHT COLUMN: Static image */}
             <div>
               <img
                 src={`https://cdn.rcsb.org/images/structures/${row.structureid?.toLowerCase()}_assembly-1.jpeg`}
@@ -184,6 +190,7 @@ function App() {
                 style={{ width: '300px', border: '1px solid #eee' }}
                 onError={(e) => (e.target.style.display = 'none')}
               />
+
               {visibleViewers[row.ID] && row.structureid && (
                 <ProteinViewer
                   pdbUrl={`https://opm-assets.storage.googleapis.com/assembly/${row.structureid}Apath.pdb`}
