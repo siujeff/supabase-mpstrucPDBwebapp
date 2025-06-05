@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+
+import React, { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
-import ProteinViewer from './ProteinViewer'
 
 function App() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
-  const [visibleViewers, setVisibleViewers] = useState({})
+  const [visibleGroups, setVisibleGroups] = useState({})
   const [filterStatus, setFilterStatus] = useState('__ALL__')
   const [sortDesc, setSortDesc] = useState(true)
   const [authorized, setAuthorized] = useState(false)
@@ -31,17 +31,49 @@ function App() {
     setLoading(false)
   }
 
-  async function updateRow(id, newStatus, newMemo) {
-    const { error } = await supabase
-      .from('pdb_USC_backup')
-      .update({ Status: newStatus, memo: newMemo })
-      .eq('ID', id)
-
-    if (error) {
-      console.error('Update error:', error)
-    } else {
-      fetchData()
+  async function updateGroup(pubmedId, newStatus, newMemo) {
+    const entriesToUpdate = data.filter(entry => entry.PubMed === pubmedId)
+    for (let entry of entriesToUpdate) {
+      await supabase
+        .from('pdb_USC_backup')
+        .update({ Status: newStatus, memo: newMemo })
+        .eq('ID', entry.ID)
     }
+    fetchData()
+  }
+
+  function exportToCSV() {
+    const header = ["ID", "Status", "Memo", "StructureID", "PubMed", "PDB", "UniProt", "ReleaseDate", "Protein Type"];
+    const sortedData = [...data].sort((a, b) => {
+	  if (!a.PubMed) return 1
+	  if (!b.PubMed) return -1
+	  return a.PubMed.localeCompare(b.PubMed)
+	})
+
+	const rows = sortedData.map(row => [
+      row.ID,
+      row.Status || "",
+      row.memo || "",
+      row.structureid,
+      row.PubMed,
+      row.PDB,
+      row.UniProt,
+      row.releaseDate || "",
+      row.protein_type || ""
+    ]);
+
+    const csvContent = [header, ...rows]
+      .map(e => e.map(field => `"${String(field).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "pdb_records_export.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   if (!authorized) {
@@ -74,14 +106,19 @@ function App() {
 
   if (loading) return <p style={{ padding: 20 }}>Loading data...</p>
 
+  const grouped = data.reduce((acc, item) => {
+    if (!acc[item.PubMed]) acc[item.PubMed] = []
+    acc[item.PubMed].push(item)
+    return acc
+  }, {})
+
   return (
-    <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: '1200px', margin: '0 auto' }}>
-      {/* HEADER + FILTER BAR */}
+    <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: '1200px', margin: '0 auto', fontSize: '1.1rem', lineHeight: '1.5' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>🧬 PDB Entry Labeler</h1>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <label>
-            Filter by Status:{' '}
+            Filter by Status:
             <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
               <option value="__ALL__">(All)</option>
               <option value="__EMPTY__">(Blank)</option>
@@ -96,109 +133,100 @@ function App() {
           <button onClick={() => setSortDesc(prev => !prev)}>
             Sort: {sortDesc ? 'Newest First' : 'Oldest First'}
           </button>
+          <button onClick={exportToCSV}>🟩 Export to CSV</button>
         </div>
       </div>
 
-      {/* DATA RECORDS */}
-      {data
-        .filter(row => {
+      {Object.entries(grouped).map(([pubmed, group]) => {
+        const first = group[0]
+        const filtered = group.filter(row => {
           const status = (row.Status || '').trim().toLowerCase()
           const filter = filterStatus.trim().toLowerCase()
           if (filter === '__all__') return true
           if (filter === '__empty__') return status === ''
           return status === filter
         })
-        .sort((a, b) => {
-          const dateA = new Date(a.releaseDate)
-          const dateB = new Date(b.releaseDate)
-          return sortDesc ? dateB - dateA : dateA - dateB
-        })
-        .map(row => (
-          <div
-            key={row.ID}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start',
-              border: '1px solid #ccc',
-              padding: 15,
-              marginBottom: 20
-            }}
-          >
-            {/* LEFT COLUMN */}
-            <div style={{ flex: 1, marginRight: 20 }}>
-              <p><strong>ID:</strong> {row.ID}</p>
-              <p><strong>Structure ID:</strong> {row.structureid}</p>
-              <p><strong>Release Date:</strong> {row.releaseDate?.split(' ')[0] || 'N/A'}</p>
+        if (filtered.length === 0) return null
 
-              <label>
-                <input
-                  type="checkbox"
-                  checked={!!visibleViewers[row.ID]}
-                  onChange={(e) =>
-                    setVisibleViewers(prev => ({
-                      ...prev,
-                      [row.ID]: e.target.checked
-                    }))
-                  }
-                />{' '}
-                Show 3D structure
-                <span style={{ marginLeft: 10 }}>
-                  <strong>Uniprot protein type:</strong>{' '}
-                  <span style={{ fontStyle: 'italic' }}>{row.protein_type || 'N/A'}</span>
-                </span>
-              </label>
+        const releaseDates = [...new Set(group.map(e => e.releaseDate).filter(Boolean))].join(', ')
+        const proteinTypes = [...new Set(group.map(e => e.protein_type).filter(Boolean))].join(', ')
+        const expanded = visibleGroups[pubmed]
 
-              <p>
-                <a href={row.PDB} target="_blank" rel="noopener noreferrer">🔗 PDB Link</a> |{' '}
-                <a href={row.PubMed} target="_blank" rel="noopener noreferrer">📄 PubMed Link</a> |{' '}
-                <a href={row.UniProt} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
-              </p>
-
-              <label>
-                Status:{' '}
-                <select
-                  defaultValue={row.Status || ''}
-                  onChange={(e) => updateRow(row.ID, e.target.value, row.memo)}
-                >
-                  <option value="">(Blank)</option>
-                  <option value="Yes">Yes</option>
-                  <option value="No">No</option>
-                  <option value="Maybe">Maybe</option>
-                  <option value="Already In">Already In</option>
-                  <option value="Pubmed ready">Pubmed ready</option>
-                  <option value="Ready for yes">Ready for yes</option>
-                </select>
-              </label>
-
-              <br /><br />
-              <label>
-                Memo:{' '}
-                <input
-                  defaultValue={row.memo || ''}
-                  onBlur={(e) => updateRow(row.ID, row.Status, e.target.value)}
-                  style={{ width: '80%' }}
-                />
-              </label>
-            </div>
-
-            {/* RIGHT COLUMN: Static image */}
-            <div>
+        return (
+          <div key={pubmed} style={{ border: '1px solid #ccc', marginBottom: 20, padding: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ flex: 1 }}>
+                <strong>PubMed Group:</strong>{' '}
+                <a href={first.PubMed} target="_blank" rel="noopener noreferrer">{pubmed}</a><br />
+                <strong>Structure IDs:</strong>{' '}
+                {group.map(e => (
+                  <a key={e.structureid} href={e.PDB} target="_blank" rel="noopener noreferrer" style={{ marginRight: 4 }}>
+                    {e.structureid}
+                  </a>
+                ))}<br />
+                <strong>ID:</strong> {first.ID}<br />
+                <strong>Release Date(s):</strong> {releaseDates}<br />
+                <strong>Uniprot Protein Type(s):</strong> {proteinTypes}<br />
+				<br />
+                <label>Status:
+                  <select
+                    defaultValue={first.Status || ''}
+                    onChange={(e) => updateGroup(pubmed, e.target.value, first.memo)}
+                  >
+                    <option value="">(Blank)</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                    <option value="Maybe">Maybe</option>
+                    <option value="Already In">Already In</option>
+                    <option value="Pubmed ready">Pubmed ready</option>
+                    <option value="Ready for yes">Ready for yes</option>
+                  </select>
+                </label>
+                <br />
+                <label>Memo:
+                  <input
+                    defaultValue={first.memo || ''}
+                    onBlur={(e) => updateGroup(pubmed, first.Status, e.target.value)}
+                    style={{ width: '50%' }}
+                  />
+                </label>
+              </div>
               <img
-                src={`https://cdn.rcsb.org/images/structures/${row.structureid?.toLowerCase()}_assembly-1.jpeg`}
-                alt={`PDB ${row.structureid}`}
-                style={{ width: '300px', border: '1px solid #eee' }}
+                src={`https://cdn.rcsb.org/images/structures/${first.structureid?.toLowerCase()}_assembly-1.jpeg`}
+                alt={`PDB ${first.structureid}`}
+                style={{ width: '220px', border: '1px solid #ccc' }}
                 onError={(e) => (e.target.style.display = 'none')}
               />
-
-              {visibleViewers[row.ID] && row.structureid && (
-                <ProteinViewer
-                  pdbUrl={`https://opm-assets.storage.googleapis.com/assembly/${row.structureid}Apath.pdb`}
-                />
+              {group.length > 1 && (
+                <button onClick={() => setVisibleGroups(prev => ({ ...prev, [pubmed]: !expanded }))}>
+                  {expanded ? '▼ Collapse' : '▶ Expand'}
+                </button>
               )}
             </div>
+            {expanded && group.map(row => (
+              <div key={row.ID} style={{ marginTop: 15, borderTop: '1px solid #ddd', paddingTop: 10, display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ flex: 1 }}>
+                  <p><strong>ID:</strong> {row.ID}</p>
+                  <p><strong>Structure ID:</strong> {row.structureid}</p>
+                  <p><strong>Release Date:</strong> {row.releaseDate?.split(' ')[0] || 'N/A'}</p>
+                  <p><strong>Uniprot protein type:</strong> <em>{row.protein_type || 'N/A'}</em></p>
+                  <p>
+                    <a href={row.PDB} target="_blank" rel="noopener noreferrer">🔗 PDB Link</a> |{' '}
+                    <a href={row.PubMed} target="_blank" rel="noopener noreferrer">📄 PubMed Link</a> |{' '}
+                    <a href={row.UniProt} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
+                  </p>
+                </div>
+                <img
+                  src={`https://cdn.rcsb.org/images/structures/${row.structureid?.toLowerCase()}_assembly-1.jpeg`}
+                  alt={`PDB ${row.structureid}`}
+                  style={{ width: '280px', border: '1px solid #ccc' }}
+                  onError={(e) => (e.target.style.display = 'none')}
+                />
+              </div>
+            ))}
           </div>
-        ))}
+        )
+      })}
     </div>
   )
 }

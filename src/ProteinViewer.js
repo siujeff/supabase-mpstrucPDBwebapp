@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import * as NGL from 'ngl'
+import React from 'react'
 
 export default function ProteinViewer({ pdbUrl }) {
   const stageRef = useRef(null)
