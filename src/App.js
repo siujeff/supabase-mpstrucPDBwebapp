@@ -18,8 +18,8 @@ function App() {
   async function fetchData() {
     const { data, error } = await supabase
       .from('pdb_membrane_records')
-      .select('pdb_id, title, release_date, deposition_date, experimental_method, resolution, pubmed_id, doi, journal_volume, page_first, page_last, journal, year, taxonomy, sequence_length, num_tm_segments, uniprot_id, classification, Status, memo, CitationTitle')
-      .order('release_date', { ascending: false })
+      .select('pdb_id, title, release_date, deposition_date, experimental_method, resolution, pubmed_id, doi, journal_volume, page_first, page_last, journal, year, taxonomy, sequence_length, num_tm_segments, uniprot_id, classification, Status, memo, CitationTitle, SubGroup, SubGroupScore')
+	  .order('release_date', { ascending: false })
 
     if (error) {
       console.error('Fetch error:', error)
@@ -232,6 +232,13 @@ function App() {
                     <a href={`https://www.ncbi.nlm.nih.gov/pubmed/?term=${first.pubmed_id}`} target="_blank" rel="noopener noreferrer">📄 PubMed Link</a> |{' '}
                     <a href={`https://www.uniprot.org/uniprotkb/${first.uniprot_id}`} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
                   </p>
+				  
+				{(first.SubGroup || first.SubGroupScore) && (
+				  <p>
+					<strong>SubGroup:</strong> {first.SubGroup || 'N/A'}<br />
+					<strong>Score:</strong> {isNaN(Number(first.SubGroupScore)) ? 'N/A' : Number(first.SubGroupScore).toFixed(3)}
+				  </p>
+				)}
 
                   <br />
                   <label>Status:
