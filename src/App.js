@@ -5,7 +5,7 @@ function App() {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
   const [visibleGroups, setVisibleGroups] = useState({})
-  const [filterStatus, setFilterStatus] = useState('__ALL__')
+  const [filterstatus, setFilterstatus] = useState('__ALL__')
   const [sortDesc, setSortDesc] = useState(true)
   const [authorized, setAuthorized] = useState(false)
   const [passwordInput, setPasswordInput] = useState('')
@@ -33,19 +33,19 @@ function App() {
     setLoading(false)
   }
 
-  async function updateGroup(pubmedId, newStatus, newMemo) {
+  async function updateGroup(pubmedId, newstatus, newMemo) {
     const entriesToUpdate = data.filter(entry => entry.pubmed_id === pubmedId)
     for (let entry of entriesToUpdate) {
       await supabase
         .from('pdb_membrane_records')
-        .update({ Status: newStatus, memo: newMemo })
+        .update({ Status: newstatus, memo: newMemo })
         .eq('pdb_id', entry.pdb_id)
     }
     fetchData()
   }
 
   function exportToCSV() {
-    const header = ["PDB_ID", "Status", "Memo", "Title", "Release Date", "Deposition Date", "Experimental Method", "Resolution", "PubMed ID", "DOI", "Journal", "Journal Volume", "Page First", "Page Last", "Year", "Taxonomy", "Sequence Length", "Num TM Segments", "UniProt ID", "Classification"]
+    const header = ["PDB_ID", "status", "Memo", "Title", "Release Date", "Deposition Date", "Experimental Method", "Resolution", "PubMed ID", "DOI", "Journal", "Journal Volume", "Page First", "Page Last", "Year", "Taxonomy", "Sequence Length", "Num TM Segments", "UniProt ID", "Classification"]
     const sortedData = [...data].sort((a, b) => {
       const dateA = new Date(a.release_date)
       const dateB = new Date(b.release_date)
@@ -54,7 +54,7 @@ function App() {
 
     const rows = sortedData.map(row => [
       row.pdb_id,
-      row.Status || "",
+      row.status || "",
       row.memo || "",
       row.title || "",
       row.release_date || "",
@@ -134,7 +134,7 @@ function App() {
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <label>
             Filter by Status:
-            <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <select value={filterstatus} onChange={(e) => setFilterstatus(e.target.value)}>
               <option value="__ALL__">(All)</option>
               <option value="__EMPTY__">(Blank)</option>
               <option value="yes">Yes</option>
@@ -173,8 +173,8 @@ function App() {
         .map(([pubmed, group]) => {
           const first = group[0]
           const filtered = group.filter(row => {
-            const status = (row.Status || '').trim().toLowerCase()
-            const filter = filterStatus.trim().toLowerCase()
+            const status = (row.status || '').trim().toLowerCase()
+            const filter = filterstatus.trim().toLowerCase()
             if (filter === '__all__') return true
             if (filter === '__empty__') return status === ''
             return status === filter
@@ -260,7 +260,7 @@ function App() {
                   <br />
                   <label>Status:
                     <select
-                      defaultValue={first.Status || ''}
+                      defaultValue={first.status || ''}
                       onChange={(e) => updateGroup(pubmed, e.target.value, first.memo)}
                     >
                       <option value="">(Blank)</option>
@@ -276,7 +276,7 @@ function App() {
                   <label>Memo:
                     <input
                       defaultValue={first.memo || ''}
-                      onBlur={(e) => updateGroup(pubmed, first.Status, e.target.value)}
+                      onBlur={(e) => updateGroup(pubmed, first.status, e.target.value)}
                       style={{ width: '50%' }}
                     />
                   </label>
