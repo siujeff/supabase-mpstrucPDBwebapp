@@ -10,6 +10,8 @@ function App() {
   const [authorized, setAuthorized] = useState(false)
   const [passwordInput, setPasswordInput] = useState('')
   const correctPassword = process.env.REACT_APP_PROTECT_PASS
+  const [searchPdb, setSearchPdb] = useState('');
+  const [filterPdb, setFilterPdb] = useState('');
 
   useEffect(() => {
     fetchData()
@@ -18,7 +20,7 @@ function App() {
   async function fetchData() {
     const { data, error } = await supabase
       .from('pdb_membrane_records')
-      .select('pdb_id, title, release_date, deposition_date, experimental_method, resolution, pubmed_id, doi, journal_volume, page_first, page_last, journal, year, taxonomy, sequence_length, num_tm_segments, uniprot_id, classification, Status, memo, CitationTitle, SubGroup, SubGroupScore')
+      .select('pdb_id, title, release_date, deposition_date, experimental_method, resolution, pubmed_id, doi, journal_volume, page_first, page_last, journal, year, taxonomy, sequence_length, num_tm_segments, uniprot_id, classification, status, memo, citationtitle, subgroup, subgroupscore')
 	  .order('release_date', { ascending: false })
 
     if (error) {
@@ -128,7 +130,7 @@ function App() {
   return (
     <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: '1200px', margin: '0 auto', fontSize: '1.1rem', lineHeight: '1.5' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>🧬 PDB Membrane Labeler</h1>
+        <h1>🧬 mpstruc Data Browser</h1>
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           <label>
             Filter by Status:
@@ -146,6 +148,18 @@ function App() {
           <button onClick={() => setSortDesc(prev => !prev)}>
             Sort: {sortDesc ? 'Newest First' : 'Oldest First'}
           </button>
+          
+<input
+  type="text"
+  placeholder="Search PDB ID"
+  value={searchPdb}
+  onChange={(e) => setSearchPdb(e.target.value)}
+  style={{ padding: '6px', fontSize: '1rem' }}
+/>
+<button onClick={() => setFilterPdb(searchPdb)} style={{ padding: '6px 12px' }}>
+  🔍 Search
+</button>
+
           <button onClick={exportToCSV}>🟩 Export to CSV</button>
         </div>
       </div>
@@ -165,6 +179,9 @@ function App() {
             if (filter === '__empty__') return status === ''
             return status === filter
           })
+          
+          if (filterPdb && !group.some(row => row.pdb_id.toLowerCase().includes(filterPdb.toLowerCase()))) return null
+
           if (filtered.length === 0) return null
 
           const releaseDates = [...new Set(group.map(e => e.release_date).filter(Boolean))].join(', ')
