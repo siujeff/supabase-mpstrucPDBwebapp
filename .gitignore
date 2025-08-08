@@ -1,0 +1,14 @@
+# Node/React
+node_modules/
+build/
+dist/
+.parcel-cache/
+.next/
+.turbo/
+.vercel/
+
+# Local env & editor cruft
+.env
+.env.*.local
+*.log
+.DS_Store

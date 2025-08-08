@@ -1,0 +1,60 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Metadata Viewer</title>
+  <meta charset="UTF-8" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 600px;
+      margin: auto;
+    }
+    h2 {
+      color: #333;
+    }
+    p {
+      margin: 8px 0;
+    }
+    strong {
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h2>📄 Entry Metadata</h2>
+  <div id="content">Loading...</div>
+
+  <script>
+    function decodeParam(param) {
+      try {
+        return decodeURIComponent(param.replace(/\+/g, ' '));
+      } catch (e) {
+        return param;
+      }
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const content = document.getElementById('content');
+
+    const fields = [
+      ['PDB ID', 'pdb_id'],
+      ['Title', 'title'],
+      ['Resolution', 'resolution'],
+      ['Taxonomy', 'taxonomy'],
+      ['Classification', 'classification'],
+      ['Description', 'citationtitle'],
+      ['DOI', 'doi']
+    ];
+
+    content.innerHTML = fields.map(([label, key]) => {
+      const value = decodeParam(params.get(key) || 'N/A');
+      if (key === 'doi' && value !== 'N/A') {
+        return `<p><strong>${label}:</strong> <a href="https://doi.org/${value}" target="_blank">${value}</a></p>`;
+      }
+      return `<p><strong>${label}:</strong> ${value}</p>`;
+    }).join('');
+  </script>
+</body>
+</html>
