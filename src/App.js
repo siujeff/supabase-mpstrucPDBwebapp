@@ -91,7 +91,25 @@ function App() {
     link.click()
     document.body.removeChild(link)
   }
+	
+	// --- Helpers for new array-based predictions ---
+	function toPct(val) {
+	  const n = Number(val);
+	  if (!isFinite(n)) return "N/A";
+	  return `${(n * 100).toFixed(2)}%`;
+	}
 
+	function splitPredictions(subgroup, subgroupscore) {
+	  // Normalize into two "channels": text (0) and image (1)
+	  const sg = Array.isArray(subgroup) ? subgroup : [subgroup, null];
+	  const sc = Array.isArray(subgroupscore) ? subgroupscore : [subgroupscore, null];
+	  return {
+		text: { label: sg[0] ?? null, score: sc[0] ?? null },
+		image: { label: sg[1] ?? null, score: sc[1] ?? null },
+	  };
+	}
+
+	
   if (!authorized) {
     return (
       <div style={{ padding: '80px', textAlign: 'center', fontFamily: 'Arial' }}>
@@ -140,12 +158,12 @@ function App() {
             <select value={filterstatus} onChange={(e) => setFilterstatus(e.target.value)}>
               <option value="__ALL__">(All)</option>
               <option value="__EMPTY__">(Blank)</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-              <option value="maybe">Maybe</option>
-              <option value="already in">Already In</option>
-              <option value="pubmed ready">Pubmed ready</option>
-              <option value="ready for yes">Ready for yes</option>
+			  <option value="Yes">Yes</option>
+			  <option value="No">No</option>
+			  <option value="Maybe">Maybe</option>
+			  <option value="Already in">Already in</option>
+			  <option value="Pubmed ready">Pubmed ready</option>
+			  <option value="Ready for yes">Ready for yes</option>
             </select>
 
 <button
@@ -263,12 +281,29 @@ function App() {
                     <a href={`https://www.uniprot.org/uniprotkb/${first.uniprot_id}`} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
                   </p>
 				  
-				{(first.subgroup || first.subgroupscore) && (
-				  <p>
-					<strong>Prediction SubGroup:</strong> {first.subgroup || 'N/A'}<br />
-					<strong>Prediction Score:</strong> {isNaN(Number(first.subgroupscore)) ? 'N/A' : Number(first.subgroupscore).toFixed(3)}
-				  </p>
-				)}
+				{(first.subgroup || first.subgroupscore) && (() => {
+				  const { text, image } = splitPredictions(first.subgroup, first.subgroupscore);
+				  const hasAny = (text.label || text.score || image.label || image.score);
+				  if (!hasAny) return null;
+				  return (
+					<div style={{ marginTop: '8px' }}>
+					  <strong>Predictions</strong>
+					  <div style={{ marginTop: '4px' }}>
+						<div>
+						  <em>Text model:</em>{" "}
+						  {(text.label ?? "N/A")}{" "}
+						  {text.score != null ? `— ${toPct(text.score)}` : ""}
+						</div>
+						<div>
+						  <em>Image model:</em>{" "}
+						  {(image.label ?? "N/A")}{" "}
+						  {image.score != null ? `— ${toPct(image.score)}` : ""}
+						</div>
+					  </div>
+					</div>
+				  );
+				})()}
+
 
                   <br />
                   <label>Status:
@@ -280,7 +315,7 @@ function App() {
                       <option value="Yes">Yes</option>
                       <option value="No">No</option>
                       <option value="Maybe">Maybe</option>
-                      <option value="Already In">Already In</option>
+                      <option value="Already in">Already in</option>
                       <option value="Pubmed ready">Pubmed ready</option>
                       <option value="Ready for yes">Ready for yes</option>
                     </select>
@@ -367,6 +402,28 @@ function App() {
                       <a href={`https://www.ncbi.nlm.nih.gov/pubmed/?term=${row.pubmed_id}`} target="_blank" rel="noopener noreferrer">📄 PubMed Link</a> |{' '}
                       <a href={`https://www.uniprot.org/uniprotkb/${row.uniprot_id}`} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
                     </p>
+					{(row.subgroup || row.subgroupscore) && (() => {
+					const { text, image } = splitPredictions(row.subgroup, row.subgroupscore);
+					const hasAny = (text.label || text.score || image.label || image.score);
+					if (!hasAny) return null;
+					return (
+					  <div style={{ marginTop: '8px' }}>
+						<strong>Predictions</strong>
+						<div style={{ marginTop: '4px' }}>
+						  <div>
+							<em>Text model:</em>{" "}
+							{text.label ?? "N/A"}{" "}
+							{text.score != null ? `— ${toPct(text.score)}` : ""}
+						  </div>
+						  <div>
+							<em>Image model:</em>{" "}
+							{image.label ?? "N/A"}{" "}
+							{image.score != null ? `— ${toPct(image.score)}` : ""}
+						  </div>
+						</div>
+					  </div>
+					);
+				  })()}
                   </div>
                   <img
                     src={`https://cdn.rcsb.org/images/structures/${row.pdb_id?.toLowerCase()}_assembly-1.jpeg`}
