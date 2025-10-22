@@ -22,6 +22,7 @@ export default function StructureViewerInline({
   canExpand = true,
   onExpand,
 }) {
+  const [loadError, setLoadError] = useState("");
   const [show3D, setShow3D] = useState(false);
   const [hasRendered, setHasRendered] = useState(false);
   const [loading3D, setLoading3D] = useState(false);
@@ -30,6 +31,7 @@ export default function StructureViewerInline({
 
   const viewerDivRef = useRef(null);
   const viewerRef = useRef(null);
+  
 
   // Helper to apply styles based on selected color scheme
   function applyStyles(v, scheme) {

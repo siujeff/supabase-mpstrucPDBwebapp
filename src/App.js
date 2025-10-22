@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from './supabaseClient'
 import StructureViewerInline from './StructureViewerInline.jsx';
 
@@ -51,6 +51,7 @@ function App() {
   const [showModal, setShowModal] = useState(false);
   const [modalData, setModalData] = useState(null);
   const [editedMetadata, setEditedMetadata] = useState({});
+  const primaryThumbByPubmed = useRef({});
 
   useEffect(() => {
     fetchData()
@@ -216,6 +217,8 @@ return (
       })
       .map(([pubmed, group]) => {
         const first = group[0];
+	    const idLower = first.pdb_id?.toLowerCase();
+	    const modelThumb = `https://cdn.rcsb.org/images/structures/${idLower}_model-1.jpeg`;
 
         // filtering
         const filtered = group.filter((row) => {
@@ -235,7 +238,12 @@ return (
           .join(', ');
 
         const expanded = visibleGroups[pubmed];
-
+		
+		if (!primaryThumbByPubmed.current[pubmed]) {
+		  primaryThumbByPubmed.current[pubmed] = group[0]?.pdb_id || '';
+		}
+		const primaryPdbId = primaryThumbByPubmed.current[pubmed];
+		
         return (
           <div key={pubmed} style={{ border: '1px solid #ccc', marginBottom: 20, padding: 10 }}>
             {/* ROW: left details + right viewer */}
@@ -305,7 +313,7 @@ return (
                 </p>
 
 				{(() => {
-				  // Normalize arrays
+				  // Normalize arrays				  
 				  const groups = Array.isArray(first.subgroup)
 					? first.subgroup
 					: first.subgroup != null && first.subgroup !== ""
@@ -401,14 +409,23 @@ return (
                   >
                     🧾 Metadata
                   </button>
-
-                  <label htmlFor={`memo-${pubmed}`} style={{ marginLeft: 12 }}>Memo:</label>
-                  <input
-                    id={`memo-${pubmed}`}
-                    defaultValue={first.memo || ''}
-                    onBlur={(e) => updateGroup(pubmed, first.status, e.target.value)}
-                    style={{ width: 320 }}
-                  />
+				  <div style={{ flexBasis: '100%' }} />
+                  <div style={{
+					  display: 'flex',
+					  alignItems: 'center',
+					  gap: 8,
+					  flexBasis: '100%',    // or width: '100%'
+					  justifyContent: 'flex-start',
+					  marginTop: 4
+					}}>
+					  <label htmlFor={`memo-${pubmed}`} style={{ margin: 0 }}>Memo:</label>
+					  <input
+						id={`memo-${pubmed}`}
+						defaultValue={first.memo || ''}
+						onBlur={(e) => updateGroup(pubmed, first.status, e.target.value)}
+						style={{ width: 320 }}
+					  />
+					</div>
                 </div>
               </div>
 
@@ -425,11 +442,13 @@ return (
               >
                 <div style={{ border: '1px solid #e6e6e6', borderRadius: 12, padding: 10, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
 					<StructureViewerInline
-					  key={first.pdb_id}           // ← force clean remount per entry
+					  key={first.pdb_id}
 					  pdbId={first.pdb_id}
-					  thumbUrl={`https://cdn.rcsb.org/images/structures/${first.pdb_id?.toLowerCase()}_assembly-1.jpeg`}
+					  thumbUrl={modelThumb}      // prefer model-1.jpeg
 					  canExpand={group.length > 1}
-					  onExpand={() => setVisibleGroups(prev => ({ ...prev, [pubmed]: !expanded }))}
+					  onExpand={() =>
+						setVisibleGroups(prev => ({ ...prev, [pubmed]: !expanded }))
+					  }
 					/>
                 </div>
               </div>
