@@ -1,5 +1,41 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
+import StructureViewerInline from './StructureViewerInline.jsx';
+
+function formatPredictions(subgroup, subgroupscore) {
+  const groups = Array.isArray(subgroup)
+    ? subgroup
+    : subgroup != null && subgroup !== ""
+    ? [subgroup]
+    : [];
+
+  const scores = Array.isArray(subgroupscore)
+    ? subgroupscore
+    : subgroupscore != null && subgroupscore !== ""
+    ? [subgroupscore]
+    : [];
+
+  const n = Math.max(groups.length, scores.length);
+  const out = [];
+
+  for (let i = 0; i < n; i++) {
+    const g = (groups[i] ?? groups[0] ?? "").toString().trim();
+    const raw = scores[i];
+
+    let pctText = "";
+    if (raw !== undefined && raw !== null && raw !== "") {
+      const num = Number(raw);
+      if (!Number.isNaN(num)) {
+        const pct = num <= 1 ? num * 100 : num; // 0–1 → %
+        pctText = ` (${pct.toFixed(1)}%)`;
+      }
+    }
+
+    if (g || pctText) out.push(`${g}${pctText}`);
+  }
+
+  return out;
+}
 
 function App() {
   const [data, setData] = useState([])
@@ -91,25 +127,7 @@ function App() {
     link.click()
     document.body.removeChild(link)
   }
-	
-	// --- Helpers for new array-based predictions ---
-	function toPct(val) {
-	  const n = Number(val);
-	  if (!isFinite(n)) return "N/A";
-	  return `${(n * 100).toFixed(2)}%`;
-	}
 
-	function splitPredictions(subgroup, subgroupscore) {
-	  // Normalize into two "channels": text (0) and image (1)
-	  const sg = Array.isArray(subgroup) ? subgroup : [subgroup, null];
-	  const sc = Array.isArray(subgroupscore) ? subgroupscore : [subgroupscore, null];
-	  return {
-		text: { label: sg[0] ?? null, score: sc[0] ?? null },
-		image: { label: sg[1] ?? null, score: sc[1] ?? null },
-	  };
-	}
-
-	
   if (!authorized) {
     return (
       <div style={{ padding: '80px', textAlign: 'center', fontFamily: 'Arial' }}>
@@ -148,419 +166,438 @@ function App() {
 
   // The rest of your rendering logic stays the same...
 
-  return (
-    <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: '1200px', margin: '0 auto', fontSize: '1.1rem', lineHeight: '1.5' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>🧬 mpstruc Data Browser</h1>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          <label>
-            Filter by Status:
-            <select value={filterstatus} onChange={(e) => setFilterstatus(e.target.value)}>
-              <option value="__ALL__">(All)</option>
-              <option value="__EMPTY__">(Blank)</option>
-			  <option value="Yes">Yes</option>
-			  <option value="No">No</option>
-			  <option value="Maybe">Maybe</option>
-			  <option value="Already in">Already in</option>
-			  <option value="Pubmed ready">Pubmed ready</option>
-			  <option value="Ready for yes">Ready for yes</option>
-            </select>
+return (
+  <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: 1200, margin: '0 auto' }}>
+    {/* Header + controls */}
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <h1>🧬 mpstruc Data Browser</h1>
+      <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+        <label htmlFor="statusFilter" style={{ marginRight: 6 }}>Filter by IsMembraneProtein:</label>
+        <select
+          id="statusFilter"
+          value={filterstatus}
+          onChange={(e) => setFilterstatus(e.target.value)}
+        >
+          <option value="__ALL__">(All)</option>
+          <option value="__EMPTY__">(Blank)</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+          <option value="Maybe">Maybe</option>
+          <option value="Already in">Already in</option>
+          <option value="Pubmed ready">Pubmed ready</option>
+          <option value="Ready for yes">Ready for yes</option>
+        </select>
 
-<button
-  style={{ marginLeft: '10px' }}
-  onClick={() => {
-    console.log('Clicked metadata button');
-  }}
->
-  🧾 Metadata
-</button>
-          </label>
-          <button onClick={() => setSortDesc(prev => !prev)}>
-            Sort: {sortDesc ? 'Newest First' : 'Oldest First'}
-          </button>
+        <button onClick={() => setSortDesc((p) => !p)}>
+          Sort: {sortDesc ? 'Newest First' : 'Oldest First'}
+        </button>
 
-          
-<input
-  type="text"
-  placeholder="Search PDB ID"
-  value={searchPdb}
-  onChange={(e) => setSearchPdb(e.target.value)}
-  style={{ padding: '6px', fontSize: '1rem' }}
-/>
-<button onClick={() => setFilterPdb(searchPdb)} style={{ padding: '6px 12px' }}>
-  🔍 Search
-</button>
+        <input
+          type="text"
+          placeholder="Search PDB ID"
+          value={searchPdb}
+          onChange={(e) => setSearchPdb(e.target.value)}
+          style={{ padding: 6, fontSize: '1rem' }}
+        />
+        <button onClick={() => setFilterPdb(searchPdb)} style={{ padding: '6px 12px' }}>
+          🔍 Search
+        </button>
 
-          <button onClick={exportToCSV}>🟩 Export to CSV</button>
-        </div>
+        <button onClick={exportToCSV}>🟩 Export to CSV</button>
       </div>
+    </div>
 
-      {Object.entries(grouped)
-        .sort((a, b) => {
-          const dateA = new Date(a[1][0]?.release_date)
-          const dateB = new Date(b[1][0]?.release_date)
-          return sortDesc ? dateB - dateA : dateA - dateB
-        })
-        .map(([pubmed, group]) => {
-          const first = group[0]
-          const filtered = group.filter(row => {
-            const status = (row.status || '').trim().toLowerCase()
-            const filter = filterstatus.trim().toLowerCase()
-            if (filter === '__all__') return true
-            if (filter === '__empty__') return status === ''
-            return status === filter
-          })
-          
-          if (filterPdb && !group.some(row => row.pdb_id.toLowerCase().includes(filterPdb.toLowerCase()))) return null
+    {/* Cards */}
+    {Object.entries(grouped)
+      .sort((a, b) => {
+        const dateA = new Date(a[1][0]?.release_date);
+        const dateB = new Date(b[1][0]?.release_date);
+        return sortDesc ? dateB - dateA : dateA - dateB;
+      })
+      .map(([pubmed, group]) => {
+        const first = group[0];
 
-          if (filtered.length === 0) return null
+        // filtering
+        const filtered = group.filter((row) => {
+          const status = (row.status || '').trim().toLowerCase();
+          const filter = filterstatus.trim().toLowerCase();
+          if (filter === '__all__') return true;
+          if (filter === '__empty__') return status === '';
+          return status === filter;
+        });
+        if (filterPdb && !group.some((r) => r.pdb_id.toLowerCase().includes(filterPdb.toLowerCase()))) return null;
+        if (filtered.length === 0) return null;
 
-          const releaseDates = [...new Set(group.map(e => e.release_date).filter(Boolean))].join(', ')
-          const classifications = [...new Set(group.map(e => e.classification).filter(Boolean))]
-            .sort((a, b) => {
-              const order = ['Multi-Pass', 'Single-Pass', 'Peripheral', 'non-membrane']
-              return order.indexOf(a) - order.indexOf(b)
-            })
-            .join(', ')
-          const expanded = visibleGroups[pubmed]
+        // computed displays
+        const releaseDates = [...new Set(group.map((e) => e.release_date).filter(Boolean))].join(', ');
+        const classifications = [...new Set(group.map((e) => e.classification).filter(Boolean))]
+          .sort((x, y) => ['Multi-Pass', 'Single-Pass', 'Peripheral', 'non-membrane'].indexOf(x) - ['Multi-Pass', 'Single-Pass', 'Peripheral', 'non-membrane'].indexOf(y))
+          .join(', ');
 
-          return (
-            <div key={pubmed} style={{ border: '1px solid #ccc', marginBottom: 20, padding: 10 }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-                <div style={{ flex: 1 }}>
-                  <p><strong>PubMed Group:</strong>{' '}
-                    <a href={`https://www.ncbi.nlm.nih.gov/pubmed/?term=${first.pubmed_id}`} target="_blank" rel="noopener noreferrer">
-                      {first.pubmed_id}
+        const expanded = visibleGroups[pubmed];
+
+        return (
+          <div key={pubmed} style={{ border: '1px solid #ccc', marginBottom: 20, padding: 10 }}>
+            {/* ROW: left details + right viewer */}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: 12
+              }}
+            >
+              {/* LEFT COLUMN */}
+              <div style={{ flex: '1 1 560px', minWidth: 420 }}>
+                <p><strong>PubMed Group:</strong>{' '}
+                  <a href={`https://www.ncbi.nlm.nih.gov/pubmed/?term=${first.pubmed_id}`} target="_blank" rel="noopener noreferrer">
+                    {first.pubmed_id}
+                  </a>
+                </p>
+
+                <p>
+                  <strong>Journal:</strong><br />
+                  <span>
+                    ({first.year || 'N/A'}) {first.journal || 'N/A'} {first.journal_volume || ' '}:{' '}
+                    {first.page_first || ' '}
+                    {first.page_first !== first.page_last && <> - {first.page_last || ' '}</>}
+                  </span>
+                  <br />
+                  {first.CitationTitle && <div><em style={{ color: '#555' }}>{first.CitationTitle}</em></div>}
+                  {first.doi && (
+                    <a href={`https://doi.org/${first.doi}`} target="_blank" rel="noopener noreferrer">
+                      https://doi.org/{first.doi}
                     </a>
-                  </p>
-                  <p>
-					  <strong>Journal:</strong><br />
-					  {`(${first.year || 'N/A'}) ${first.journal || 'N/A'} ${first.journal_volume || ' '}: ${first.page_first || ' '}${first.page_first === first.page_last ? '' : ` - ${first.page_last || ' '}`}`}
-					  <br />
-					  	{first.CitationTitle && (
-							  <div><em style={{ color: '#555' }}>{first.CitationTitle}</em></div>
-						)}
-						{first.doi && (
-						  <>
-							<a href={`https://doi.org/${first.doi}`} target="_blank" rel="noopener noreferrer">
-							  https://doi.org/{first.doi}
-							</a>
-						  </>
-						)}
-					)}
-                  </p>
-                  <p><strong>Title:</strong> {first.title || 'N/A'}</p>
+                  )}
+                </p>
 
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    <strong style={{ marginRight: '6px' }}>PDB IDs:</strong>
-                    {[...new Set(group.map(e => e.pdb_id))].map(pdb => (
-                      <a key={pdb} href={`https://www.rcsb.org/structure/${pdb}`} target="_blank" rel="noopener noreferrer" style={{ color: 'blue' }}>
-                        {pdb}
-                      </a>
-                    ))}
-                  </div>
+                <p><strong>Title:</strong> {first.title || 'N/A'}</p>
 
-                  <p><strong>Release Date(s):</strong> {releaseDates}</p>
-                  <p><strong>Taxonomy:</strong> {first.taxonomy || 'N/A'}</p>
-                  <p><strong>Resolution:</strong> {first.resolution || 'N/A'}</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <strong style={{ marginRight: 6 }}>PDB IDs:</strong>
+                  {[...new Set(group.map((e) => e.pdb_id))].map((pdb) => (
+                    <a key={pdb} href={`https://www.rcsb.org/structure/${pdb}`} target="_blank" rel="noopener noreferrer" style={{ color: 'blue' }}>
+                      {pdb}
+                    </a>
+                  ))}
+                </div>
 
-                  <p><strong>UniProt ID(s):</strong>{' '}
-                    {[...new Set(group.map(e => e.uniprot_id))].map((id, i, arr) => (
-                      <span key={id}>
-                        <a href={`https://www.uniprot.org/uniprotkb/${id}`} target="_blank" rel="noopener noreferrer">{id}</a>
-                        {i < arr.length - 1 ? ', ' : ''}
-                      </span>
-                    ))}
-                  </p>
+                <p><strong>Release Date(s):</strong> {releaseDates}</p>
+                <p><strong>Taxonomy:</strong> {first.taxonomy || 'N/A'}</p>
+                <p><strong>Resolution:</strong> {first.resolution ? `${first.resolution} Å` : 'N/A'}</p>
 
-                  <p><strong>Classification(s):</strong> {classifications}</p>
+                <p><strong>UniProt ID(s):</strong>{' '}
+                  {[...new Set(group.map((e) => e.uniprot_id))].map((id, i, arr) => (
+                    <span key={id}>
+                      <a href={`https://www.uniprot.org/uniprotkb/${id}`} target="_blank" rel="noopener noreferrer">{id}</a>
+                      {i < arr.length - 1 ? ', ' : ''}
+                    </span>
+                  ))}
+                </p>
 
-                  <p>
-                    <a href={`https://www.rcsb.org/structure/${first.pdb_id}`} target="_blank" rel="noopener noreferrer">🔗 PDB Link</a> |{' '}
-                    <a href={`https://www.ncbi.nlm.nih.gov/pubmed/?term=${first.pubmed_id}`} target="_blank" rel="noopener noreferrer">📄 PubMed Link</a> |{' '}
-                    <a href={`https://www.uniprot.org/uniprotkb/${first.uniprot_id}`} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
-                  </p>
-				  
-				{(first.subgroup || first.subgroupscore) && (() => {
-				  const { text, image } = splitPredictions(first.subgroup, first.subgroupscore);
-				  const hasAny = (text.label || text.score || image.label || image.score);
-				  if (!hasAny) return null;
+                <p><strong>Classification(s):</strong> {classifications}</p>
+
+                <p>
+                  <a href={`https://www.rcsb.org/structure/${first.pdb_id}`} target="_blank" rel="noopener noreferrer">🔗 PDB Link</a> |{' '}
+                  <a href={`https://www.ncbi.nlm.nih.gov/pubmed/?term=${first.pubmed_id}`} target="_blank" rel="noopener noreferrer">📄 PubMed Link</a> |{' '}
+                  <a href={`https://www.uniprot.org/uniprotkb/${first.uniprot_id}`} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
+                </p>
+
+				{(() => {
+				  // Normalize arrays
+				  const groups = Array.isArray(first.subgroup)
+					? first.subgroup
+					: first.subgroup != null && first.subgroup !== ""
+					? [first.subgroup]
+					: [];
+
+				  const scores = Array.isArray(first.subgroupscore)
+					? first.subgroupscore
+					: first.subgroupscore != null && first.subgroupscore !== ""
+					? [first.subgroupscore]
+					: [];
+
+				  const maxN = Math.max(groups.length, scores.length);
+				  if (maxN === 0) return null;
+
+				  // Label order: 0 = Text model (title classifier), 1 = Image model (static image)
+				  const modelNames = ["Text model on title", "Image model on 2D"];
+
+				  const rows = [];
+				  for (let i = 0; i < maxN; i++) {
+					const label = modelNames[i] || `Model ${i + 1}`;
+
+					const candidate = Array.isArray(groups) ? groups[i] : undefined;
+					const fallback  = groups.length ? groups[0] : "";
+					const cls = (candidate ?? fallback) || "";
+
+					const raw = Array.isArray(scores) ? scores[i] : undefined;
+					let pctText = "";
+					if (raw !== undefined && raw !== null && raw !== "") {
+					  const num = Number(raw);
+					  if (!Number.isNaN(num)) {
+						const pct = num <= 1 ? num * 100 : num; // 0–1 → %
+						pctText = `${pct.toFixed(2)}%`;
+					  }
+					}
+
+					rows.push({ label, cls, pctText });
+				  }
+
 				  return (
-					<div style={{ marginTop: '8px' }}>
-					  <strong>Predictions</strong>
-					  <div style={{ marginTop: '4px' }}>
-						<div>
-						  <em>Text model:</em>{" "}
-						  {(text.label ?? "N/A")}{" "}
-						  {text.score != null ? `— ${toPct(text.score)}` : ""}
-						</div>
-						<div>
-						  <em>Image model:</em>{" "}
-						  {(image.label ?? "N/A")}{" "}
-						  {image.score != null ? `— ${toPct(image.score)}` : ""}
-						</div>
+					<div style={{ marginTop: 6 }}>
+					  <div style={{ fontWeight: 700, marginBottom: 4 }}>Predictions</div>
+					  <div>
+						{rows.map((r, idx) => (
+						  <div key={idx} style={{ margin: '2px 0' }}>
+							<em>{r.label}:</em>{' '}
+							<span>{r.cls || '—'}</span>
+							{r.pctText && <> — <span>{r.pctText}</span></>}
+						  </div>
+						))}
 					  </div>
 					</div>
 				  );
 				})()}
 
 
-                  <br />
-                  <label>Status:
-                    <select
-                      defaultValue={first.status || ''}
-                      onChange={(e) => updateGroup(pubmed, e.target.value, first.memo)}
-                    >
-                      <option value="">(Blank)</option>
-                      <option value="Yes">Yes</option>
-                      <option value="No">No</option>
-                      <option value="Maybe">Maybe</option>
-                      <option value="Already in">Already in</option>
-                      <option value="Pubmed ready">Pubmed ready</option>
-                      <option value="Ready for yes">Ready for yes</option>
-                    </select>
+                {/* Status / Metadata / Memo row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <label htmlFor={`status-${pubmed}`}>IsMembraneProtein:</label>
+                  <select
+                    id={`status-${pubmed}`}
+                    defaultValue={first.status || ''}
+                    onChange={(e) => updateGroup(pubmed, e.target.value, first.memo)}
+                  >
+                    <option value="">(Blank)</option>
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                    <option value="Maybe">Maybe</option>
+                    <option value="Already in">Already in</option>
+                    <option value="Pubmed ready">Pubmed ready</option>
+                    <option value="Ready for yes">Ready for yes</option>
+                  </select>
+
                   <button
-  style={{ marginLeft: '10px' }}
-	onClick={() => {
-	  setModalData(first);
-
-	  const family = first.subgroup_family?.toLowerCase().includes("alpha")
-		? "ALPHA-HELICAL"
-		: first.subgroup_family?.toLowerCase().includes("beta")
-		? "BETA-BARREL"
-		: first.subgroup_family?.toLowerCase().includes("monotopic")
-		? "MONOTOPIC"
-		: "";
-
-	  const subfamily = Array.isArray(first.subgroup) ? first.subgroup[0] : "";
-
-	  const organism = first.rcsb_entity_source_organism?.[0]?.scientific_name
-		|| first.organism
-		|| "";
-
-	  const expressed_in = first.pdbx_host_org_scientific_name || first.expressed_in || "";
-
-	  const species = first.ncbi_scientific_name || first.species || "";
-	  const taxonomy = first.ncbi_parent_scientific_name || first.taxonomy || "";
-
-	  setEditedMetadata({
-		...first,
-		family,
-		subfamily,
-		organism,
-		expressed_in,
-		species,
-		taxonomy,
-	  });
-
-	  setShowModal(true);
-	}}
->
-  🧾 Metadata
-</button>
-                  </label>
-                  <br />
-                  <label>Memo:
-                    <input
-                      defaultValue={first.memo || ''}
-                      onBlur={(e) => updateGroup(pubmed, first.status, e.target.value)}
-                      style={{ width: '50%' }}
-                    />
-                  </label>
-                </div>
-                <img
-                  src={`https://cdn.rcsb.org/images/structures/${first.pdb_id?.toLowerCase()}_assembly-1.jpeg`}
-                  alt={`PDB ${first.pdb_id}`}
-                  style={{
-                    maxWidth: '220px',
-                    width: '100%',
-                    height: 'auto',
-                    border: '1px solid #ccc',
-                    objectFit: 'contain',
-                    marginLeft: 'auto'
-                  }}
-                  onError={(e) => (e.target.style.display = 'none')}
-                />
-                {group.length > 1 && (
-                  <button onClick={() => setVisibleGroups(prev => ({ ...prev, [pubmed]: !expanded }))}>
-                    {expanded ? '▼ Collapse' : '▶ Expand'}
+                    style={{ marginLeft: 4 }}
+                    onClick={() => {
+                      setModalData(first);
+                      const family = first.subgroup_family?.toLowerCase().includes('alpha')
+                        ? 'ALPHA-HELICAL'
+                        : first.subgroup_family?.toLowerCase().includes('beta')
+                        ? 'BETA-BARREL'
+                        : first.subgroup_family?.toLowerCase().includes('monotopic')
+                        ? 'MONOTOPIC'
+                        : '';
+                      const subfamily = Array.isArray(first.subgroup) ? first.subgroup[0] : '';
+                      const organism = first.rcsb_entity_source_organism?.[0]?.scientific_name || first.organism || '';
+                      const expressed_in = first.pdbx_host_org_scientific_name || first.expressed_in || '';
+                      const species = first.ncbi_scientific_name || first.species || '';
+                      const taxonomy = first.ncbi_parent_scientific_name || first.taxonomy || '';
+                      setEditedMetadata({ ...first, family, subfamily, organism, expressed_in, species, taxonomy });
+                      setShowModal(true);
+                    }}
+                  >
+                    🧾 Metadata
                   </button>
-                )}
-              </div>
-              {expanded && group.map(row => (
-                <div key={row.pdb_id} style={{ marginTop: 15, borderTop: '1px solid #ddd', paddingTop: 10, display: 'flex', justifyContent: 'space-between' }}>
-                  <div style={{ flex: 1 }}>
-                    <p><strong>PDB ID:</strong> {row.pdb_id}</p>
-                    <p><strong>Title:</strong> {row.title}</p>
-                    <p><strong>Release Date:</strong> {row.release_date || 'N/A'}</p>
-                    <p><strong>Taxonomy:</strong> {row.taxonomy || 'N/A'}</p>
-                    <p><strong>Resolution:</strong> {row.resolution || 'N/A'}</p>
-                    <p><strong>UniProt:</strong> <a href={`https://www.uniprot.org/uniprotkb/${row.uniprot_id}`} target="_blank" rel="noopener noreferrer">{row.uniprot_id}</a></p>
-                    <p><strong>Classification:</strong> {row.classification || 'N/A'}</p>
-                    <p>
-                      <a href={`https://www.rcsb.org/structure/${row.pdb_id}`} target="_blank" rel="noopener noreferrer">🔗 PDB Link</a> |{' '}
-                      <a href={`https://www.ncbi.nlm.nih.gov/pubmed/?term=${row.pubmed_id}`} target="_blank" rel="noopener noreferrer">📄 PubMed Link</a> |{' '}
-                      <a href={`https://www.uniprot.org/uniprotkb/${row.uniprot_id}`} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
-                    </p>
-					{(row.subgroup || row.subgroupscore) && (() => {
-					const { text, image } = splitPredictions(row.subgroup, row.subgroupscore);
-					const hasAny = (text.label || text.score || image.label || image.score);
-					if (!hasAny) return null;
-					return (
-					  <div style={{ marginTop: '8px' }}>
-						<strong>Predictions</strong>
-						<div style={{ marginTop: '4px' }}>
-						  <div>
-							<em>Text model:</em>{" "}
-							{text.label ?? "N/A"}{" "}
-							{text.score != null ? `— ${toPct(text.score)}` : ""}
-						  </div>
-						  <div>
-							<em>Image model:</em>{" "}
-							{image.label ?? "N/A"}{" "}
-							{image.score != null ? `— ${toPct(image.score)}` : ""}
-						  </div>
-						</div>
-					  </div>
-					);
-				  })()}
-                  </div>
-                  <img
-                    src={`https://cdn.rcsb.org/images/structures/${row.pdb_id?.toLowerCase()}_assembly-1.jpeg`}
-                    alt={`PDB ${row.pdb_id}`}
-                    style={{ width: '280px', border: '1px solid #ccc' }}
-                    onError={(e) => (e.target.style.display = 'none')}
+
+                  <label htmlFor={`memo-${pubmed}`} style={{ marginLeft: 12 }}>Memo:</label>
+                  <input
+                    id={`memo-${pubmed}`}
+                    defaultValue={first.memo || ''}
+                    onBlur={(e) => updateGroup(pubmed, first.status, e.target.value)}
+                    style={{ width: 320 }}
                   />
                 </div>
-              ))}
+              </div>
+
+              {/* RIGHT COLUMN: sticky viewer card */}
+              <div
+                style={{
+                  flex: '0 0 300px',
+                  marginLeft: 16,
+                  alignSelf: 'flex-start',
+                  position: 'sticky',
+                  top: 12,
+                  zIndex: 1
+                }}
+              >
+                <div style={{ border: '1px solid #e6e6e6', borderRadius: 12, padding: 10, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+					<StructureViewerInline
+					  key={first.pdb_id}           // ← force clean remount per entry
+					  pdbId={first.pdb_id}
+					  thumbUrl={`https://cdn.rcsb.org/images/structures/${first.pdb_id?.toLowerCase()}_assembly-1.jpeg`}
+					  canExpand={group.length > 1}
+					  onExpand={() => setVisibleGroups(prev => ({ ...prev, [pubmed]: !expanded }))}
+					/>
+                </div>
+              </div>
             </div>
-          )
-        })}
 
-      {showModal && modalData && (
-		  <>
-			{/* Backdrop */}
-			<div style={{
-			  position: 'fixed', top: 0, left: 0,
-			  width: '100%', height: '100%',
-			  backgroundColor: 'rgba(0, 0, 0, 0.5)',
-			  zIndex: 9999
-			}} onClick={() => setShowModal(false)} />
+            {/* Expanded rows */}
+            {expanded && group.map((row) => (
+              <div
+                key={row.pdb_id}
+                style={{ marginTop: 15, borderTop: '1px solid #ddd', paddingTop: 10, display: 'flex', justifyContent: 'space-between' }}
+              >
+                <div style={{ flex: '1 1 520px' }}>
+                  <p><strong>PDB ID:</strong> {row.pdb_id}</p>
+                  <p><strong>Title:</strong> {row.title}</p>
+                  <p><strong>Release Date:</strong> {row.release_date || 'N/A'}</p>
+                  <p><strong>Taxonomy:</strong> {row.taxonomy || 'N/A'}</p>
+                  <p><strong>Resolution:</strong> {row.resolution || 'N/A'}</p>
+                  <p><strong>UniProt:</strong> <a href={`https://www.uniprot.org/uniprotkb/${row.uniprot_id}`} target="_blank" rel="noopener noreferrer">{row.uniprot_id}</a></p>
+                  <p><strong>Classification:</strong> {row.classification || 'N/A'}</p>
+                  <p>
+                    <a href={`https://www.rcsb.org/structure/${row.pdb_id}`} target="_blank" rel="noopener noreferrer">🔗 PDB Link</a> |{' '}
+                    <a href={`https://www.ncbi.nlm.nih.gov/pubmed/?term=${row.pubmed_id}`} target="_blank" rel="noopener noreferrer">📄 PubMed Link</a> |{' '}
+                    <a href={`https://www.uniprot.org/uniprotkb/${row.uniprot_id}`} target="_blank" rel="noopener noreferrer">🔗 UniProt Link</a>
+                  </p>
+                </div>
+                <img
+                  src={`https://cdn.rcsb.org/images/structures/${row.pdb_id?.toLowerCase()}_assembly-1.jpeg`}
+                  alt={`PDB ${row.pdb_id}`}
+                  style={{ width: 280, border: '1px solid #ccc' }}
+                  onError={(e) => (e.target.style.display = 'none')}
+                />
+              </div>
+            ))}
+          </div>
+        );
+      })}
 
-			{/* Modal */}
-			<div style={{
-			  position: 'fixed',
-			  top: '50%',
-			  left: '50%',
-			  transform: 'translate(-50%, -50%)',
-			  backgroundColor: '#fff',
-			  padding: '20px',
-			  border: '1px solid #ccc',
-			  zIndex: 10000,
-			  width: '90%',
-			  maxWidth: '600px',
-			  boxShadow: '0 0 10px rgba(0,0,0,0.3)',
-			  fontFamily: 'Arial'
-			}} onClick={(e) => e.stopPropagation()}>
-			  <h2>📄 Edit Entry Metadata</h2>
+    {/* Modal lives AFTER the map */}
+    {showModal && modalData && (
+      <>
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+            backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999
+          }}
+          onClick={() => setShowModal(false)}
+        />
+        <div
+          style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+            backgroundColor: '#fff', padding: 20, border: '1px solid #ccc',
+            zIndex: 10000, width: '90%', maxWidth: 600, boxShadow: '0 0 10px rgba(0,0,0,0.3)',
+            fontFamily: 'Arial'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2>📄 Edit Entry Metadata</h2>
 
-			  <p><strong>PDB ID:</strong> {modalData.pdb_id}</p>
+          <p><strong>PDB ID:</strong> {modalData.pdb_id}</p>
 
-			  <p><strong>Title:</strong><br />
-				<textarea style={{ width: '100%' }}
-				  value={editedMetadata.title || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, title: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Title:</strong><br />
+            <textarea
+              style={{ width: '100%' }}
+              value={editedMetadata.title || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, title: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Source Organism (Species):</strong><br />
-				<input style={{ width: '100%' }}
-				  value={editedMetadata.organism || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, organism: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Source Organism (Species):</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.organism || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, organism: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Taxonomic Domain:</strong><br />
-				<input style={{ width: '100%' }}
-				  value={editedMetadata.taxonomy || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, taxonomy: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Taxonomic Domain:</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.taxonomy || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, taxonomy: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Expressed In Species:</strong><br />
-				<input style={{ width: '100%' }}
-				  value={editedMetadata.expressed_in || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, expressed_in: e.target.value })}
-				/>
-			  </p>
-			  
-			  <p><strong>Species:</strong><br />
-				  <input style={{ width: '100%' }}
-					value={editedMetadata.species || ''}
-					onChange={(e) => setEditedMetadata({ ...editedMetadata, species: e.target.value })}
-				  />
-				</p>
+          <p><strong>Expressed In Species:</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.expressed_in || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, expressed_in: e.target.value })}
+            />
+          </p>
 
+          <p><strong>Species:</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.species || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, species: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Resolution:</strong><br />
-				<input style={{ width: '100%' }}
-				  value={editedMetadata.resolution || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, resolution: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Resolution:</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.resolution || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, resolution: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Description:</strong><br />
-				<textarea rows="2" style={{ width: '100%' }}
-				  value={editedMetadata.citationtitle || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, citationtitle: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Description:</strong><br />
+            <textarea
+              rows={2}
+              style={{ width: '100%' }}
+              value={editedMetadata.citationtitle || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, citationtitle: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Family:</strong><br />
-				<input style={{ width: '100%' }}
-				  value={editedMetadata.family || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, family: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Family:</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.family || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, family: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Subfamily:</strong><br />
-				<input style={{ width: '100%' }}
-				  value={editedMetadata.subfamily || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, subfamily: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Subfamily:</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.subfamily || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, subfamily: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Bibliography:</strong><br />
-				<input style={{ width: '100%' }}
-				  value={editedMetadata.bibliography || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, bibliography: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Bibliography:</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.bibliography || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, bibliography: e.target.value })}
+            />
+          </p>
 
-			  <p><strong>Family Master:</strong><br />
-				<input style={{ width: '100%' }}
-				  value={editedMetadata.familymaster || ''}
-				  onChange={(e) => setEditedMetadata({ ...editedMetadata, familymaster: e.target.value })}
-				/>
-			  </p>
+          <p><strong>Family Master:</strong><br />
+            <input
+              style={{ width: '100%' }}
+              value={editedMetadata.familymaster || ''}
+              onChange={(e) => setEditedMetadata({ ...editedMetadata, familymaster: e.target.value })}
+            />
+          </p>
 
-			  <div style={{ textAlign: 'right', marginTop: '1rem' }}>
-				<button onClick={() => {
-				  console.log('Saved Metadata:', editedMetadata);
-				  setShowModal(false);
-				}} style={{ padding: '6px 12px', marginRight: '10px' }}>
-				  Save Changes
-				</button>
-				<button onClick={() => setShowModal(false)} style={{ padding: '6px 12px' }}>
-				  Cancel
-				</button>
-			  </div>
-			</div>
-		  </>
-		)}
+          <div style={{ textAlign: 'right', marginTop: '1rem' }}>
+            <button
+              onClick={() => {
+                console.log('Saved Metadata:', editedMetadata);
+                setShowModal(false);
+              }}
+              style={{ padding: '6px 12px', marginRight: 10 }}
+            >
+              Save Changes
+            </button>
+            <button onClick={() => setShowModal(false)} style={{ padding: '6px 12px' }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </>
+    )}
+  </div>
+);
 
-    </div>
-  )
 }
-
-export default App
+export default App;

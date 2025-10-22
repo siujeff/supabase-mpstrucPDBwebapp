@@ -11,3 +11,171 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+/* === Inline 3D viewer styles (keep your other global styles) === */
+
+/* Put controls below the media (no right-side column) */
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+/* Single, borderless media area (let the outer card provide the frame) */
+.preview-media {
+  position: relative;
+  width: 100%;
+  height: 380px;           /* adjust to taste */
+  background: #fff;        /* clean white canvas */
+  border: 0;               /* <-- remove inner border (kills double-frame) */
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Make both the 2D image and 3D canvas fill the box */
+.preview-media .viewer,
+.preview-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.viewer canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.hidden { display: none !important; }
+
+/* Controls row (bottom) */
+.panel-controls {
+  display: flex;
+  gap: 8px;
+}
+
+/* Flatten the “split-vertical” look; make two normal buttons side-by-side */
+.panel-controls .split-vertical {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  width: 100%;
+  border: 0;               /* <-- remove inner frame */
+  background: transparent;
+}
+
+.split-vertical .split-top,
+.split-vertical .split-bottom {
+  flex: 1 1 0;
+  padding: 8px 10px;
+  border: 1px solid #e2e2e2;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.split-vertical .split-top { border-bottom: 1px solid #e5e7eb; } /* harmless now */
+.split-vertical button:hover { background: #f5f5f5; }
+
+/* (Optional) if you had these earlier for a right-hand sticky column, keep them.
+   They don't add borders; they just position the outer card. */
+.viewer-col { position: sticky; top: 12px; }
+.sv-card { border: 1px solid #e6e6e6; border-radius: 12px; padding: 10px; background: #fff; }
+
+
+/* Two-column group row */
+.group-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;      /* pin right col to top */
+  gap: 12px;
+  min-height: 360px;            /* prevents overlap with right panel */
+}
+
+.group-left {
+  flex: 1 1 560px;
+  min-width: 420px;
+}
+
+/* Right column */
+.viewer-col {
+  flex: 0 0 300px;              /* fixed width column */
+  align-self: flex-start;
+  margin-left: 12px;
+  position: sticky;             /* keep visible during long left text */
+  top: 12px;
+  z-index: 0;
+}
+
+/* Viewer card */
+.sv-card {
+  border: 1px solid #e6e6e6;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fff;
+  overflow: hidden; /* no internal scrollbars */
+}
+
+/* Canvas / thumb area — taller, no inner border */
+.sv-canvas {
+  width: 100%;
+  height: 380px;              /* ↑ give it more vertical room */
+  border-radius: 8px;
+  background: #fafafa;
+  position: relative;
+}
+.sv-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 8px;
+}
+
+/* 3D canvas sizing */
+.viewer,
+.viewer canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.hidden { display: none !important; }
+
+/* Controls under the image */
+.sv-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.sv-btn {
+  flex: 1 1 0;
+  padding: 8px 10px;
+  border: 1px solid #e2e2e2;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+.sv-btn:hover { background: #f5f5f5; }
+
+
+/* Small screens: let the right panel drop under cleanly */
+@media (max-width: 980px) {
+  .viewer-col {
+    position: static;
+    width: 100%;
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+}
+/* Make the 3D viewer fill the media area */
+.sv-canvas .viewer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
