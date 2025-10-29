@@ -57,32 +57,76 @@ function App() {
     fetchData()
   }, [])
 
-  async function fetchData() {
-    const { data, error } = await supabase
-      .from('pdb_membrane_records')
-      .select('pdb_id, title, release_date, deposition_date, experimental_method, resolution, pubmed_id, doi, journal_volume, page_first, page_last, journal, year, taxonomy, sequence_length, num_tm_segments, uniprot_id, classification, status, memo, citationtitle, subgroup, subgroupscore')
-	  .order('release_date', { ascending: false })
+	async function fetchData() {
+	  const { data: rows, error } = await supabase
+		.from('v_pdb_membrane_records_compat')
+		.select(`
+		  pdb_id,
+		  title,
+		  release_date,
+		  experimental_method,
+		  resolution,
+		  pubmed_id,
+		  doi,
+		  journal,
+		  journal_volume,
+		  page_first,
+		  page_last,
+		  year,
+		  taxonomy,
+		  sequence_length,
+		  num_tm_segments,
+		  uniprot_id,
+		  classification,
+		  status,
+		  memo,
+		  citationtitle,
+		  subgroup,
+		  subgroupscore
+		`)
+		.order('release_date', { ascending: false });
 
-    if (error) {
-      console.error('Fetch error:', error)
-    } else {
-      // Filter out records without a pubmed_id
-      setData(data.filter(record => record.pubmed_id))
-    }
+	  if (error) {
+		console.error('Fetch error:', error);
+		setData([]);
+	  } else {
+		// If you want to see everything while debugging, don’t filter yet:
+		// setData(rows || []);
+		// If you really want to hide rows missing pmid, keep this:
+		setData((rows || []).filter(r => r.pubmed_id));
+		console.log('Fetched rows:', (rows || []).length);
+	  }
+	  setLoading(false);
+	}
 
-    setLoading(false)
-  }
 
-  async function updateGroup(pubmedId, newstatus, newMemo) {
-    const entriesToUpdate = data.filter(entry => entry.pubmed_id === pubmedId)
-    for (let entry of entriesToUpdate) {
-      await supabase
-        .from('pdb_membrane_records')
-        .update({ status: newstatus, memo: newMemo })
-        .eq('pdb_id', entry.pdb_id)
-    }
-    fetchData()
-  }
+	async function updateGroup(pubmedId, newstatus, newMemo) {
+	  // collect all PDBs under this PubMed group currently loaded
+	  const entriesToUpdate = data.filter(entry => entry.pubmed_id === pubmedId);
+
+	  // Build an upsert payload into the NOTE table
+	  const payload = entriesToUpdate.map(e => ({
+		pubmed_id: e.pubmed_id,
+		pdb_id: e.pdb_id,
+		status: newstatus ?? e.status ?? null,
+		memo: (newMemo ?? e.memo ?? '').toString(),
+	  }));
+
+	  // Upsert by composite key
+	  const { error } = await supabase
+		.from('note')
+		.upsert(payload, { onConflict: 'pubmed_id,pdb_id' });
+
+	  if (error) {
+		console.error('Note upsert error:', error);
+		alert('❌ Failed to save note/status. See console for details.');
+		return;
+	  }
+
+	  // Refresh the view
+	  fetchData();
+	}
+
 
   function exportToCSV() {
     const header = ["PDB_ID", "status", "memo", "Title", "Release Date", "Deposition Date", "Experimental Method", "Resolution", "PubMed ID", "DOI", "Journal", "Journal Volume", "Page First", "Page Last", "Year", "Taxonomy", "Sequence Length", "Num TM Segments", "UniProt ID", "Classification"]
@@ -222,12 +266,12 @@ return (
 
         // filtering
         const filtered = group.filter((row) => {
-          const status = (row.status || '').trim().toLowerCase();
-          const filter = filterstatus.trim().toLowerCase();
-          if (filter === '__all__') return true;
-          if (filter === '__empty__') return status === '';
-          return status === filter;
-        });
+		  const status = (row.status || '').trim().toLowerCase();
+		  const filter = filterstatus.trim().toLowerCase();
+		  if (filter === '__all__') return true;
+		  if (filter === '__empty__') return status === '';
+		  return status === filter;
+		});
         if (filterPdb && !group.some((r) => r.pdb_id.toLowerCase().includes(filterPdb.toLowerCase()))) return null;
         if (filtered.length === 0) return null;
 
@@ -272,7 +316,7 @@ return (
                     {first.page_first !== first.page_last && <> - {first.page_last || ' '}</>}
                   </span>
                   <br />
-                  {first.CitationTitle && <div><em style={{ color: '#555' }}>{first.CitationTitle}</em></div>}
+                  {first.citationtitle && <div><em style={{ color: '#555' }}>{first.citationtitle}</em></div>}
                   {first.doi && (
                     <a href={`https://doi.org/${first.doi}`} target="_blank" rel="noopener noreferrer">
                       https://doi.org/{first.doi}
@@ -292,7 +336,9 @@ return (
                 </div>
 
                 <p><strong>Release Date(s):</strong> {releaseDates}</p>
-                <p><strong>Taxonomy:</strong> {first.taxonomy || 'N/A'}</p>
+                <p><strong>Taxonomy:</strong> {Array.isArray(first.taxonomy)
+				  ? (first.taxonomy.length ? first.taxonomy.join(', ') : 'N/A')
+				  : (first.taxonomy || 'N/A')}</p>
                 <p><strong>Resolution:</strong> {first.resolution ? `${first.resolution} Å` : 'N/A'}</p>
 
                 <p><strong>UniProt ID(s):</strong>{' '}
