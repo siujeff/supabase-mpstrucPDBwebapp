@@ -2,6 +2,39 @@ import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from './supabaseClient'
 import StructureViewerInline from './StructureViewerInline.jsx';
 
+const MODEL_NAMES = [
+  "Text model on title",
+  "Image model on 2D",
+  "Text model on abstract",
+];
+
+const LABEL_ALIASES = {
+  "channels_transient_receptor_potential_trp": "Channels: Transient Receptor Potential (TRP)",
+  "beta_barrel_membrane_proteins_porins": "Beta-Barrel Membrane Proteins: Porins",
+  "f_type_atpase": "F-type ATPase",
+};
+
+const rowInt = (v) => {
+  if (v === null || v === undefined) return "N/A";
+  const s = String(v).trim();
+  if (s === "" || s.toLowerCase() === "null" || s.toLowerCase() === "nan") return "N/A";
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : "N/A";
+};
+
+function prettifyClassLabel(s) {
+  if (!s) return "";
+  const key = String(s).trim().toLowerCase();
+  if (LABEL_ALIASES[key]) return LABEL_ALIASES[key];
+  // Fallback: snake_case → Title Case, keep hyphens/slashes
+  return String(s)
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
+    .replace(/\bTrp\b/gi, "TRP"); // small nicety
+}
+
 function formatPredictions(subgroup, subgroupscore) {
   const groups = Array.isArray(subgroup)
     ? subgroup
@@ -73,7 +106,6 @@ function App() {
 		  page_first,
 		  page_last,
 		  year,
-		  taxonomy,
 		  sequence_length,
 		  num_tm_segments,
 		  uniprot_id,
@@ -101,63 +133,61 @@ function App() {
 
 
 	async function updateGroup(pubmedId, newstatus, newMemo) {
-	  // collect all PDBs under this PubMed group currently loaded
-	  const entriesToUpdate = data.filter(entry => entry.pubmed_id === pubmedId);
+	  const entriesToUpdate = data.filter(e => e.pubmed_id === pubmedId);
 
-	  // Build an upsert payload into the NOTE table
-	  const payload = entriesToUpdate.map(e => ({
-		pubmed_id: e.pubmed_id,
-		pdb_id: e.pdb_id,
-		status: newstatus ?? e.status ?? null,
-		memo: (newMemo ?? e.memo ?? '').toString(),
-	  }));
+	  const normStatus = (s) =>
+		s === undefined || s === null || String(s).trim() === "" ? null : String(s);
 
-	  // Upsert by composite key
-	  const { error } = await supabase
-		.from('note')
-		.upsert(payload, { onConflict: 'pubmed_id,pdb_id' });
-
-	  if (error) {
-		console.error('Note upsert error:', error);
-		alert('❌ Failed to save note/status. See console for details.');
-		return;
+	  for (const e of entriesToUpdate) {
+		const { error } = await supabase.rpc('upsert_note', {
+		  p_pubmed_id: String(e.pubmed_id),
+		  p_pdb_id:    String(e.pdb_id),
+		  p_status:    normStatus(newstatus ?? e.status),
+		  p_memo:      (newMemo ?? e.memo ?? "").toString(),
+		});
+		if (error) {
+		  console.error('upsert_note error', error);
+		  alert(`❌ Failed to save note/status.\n${error.message || ''}`);
+		  return;
+		}
 	  }
-
-	  // Refresh the view
 	  fetchData();
 	}
+																																									
 
 
   function exportToCSV() {
-    const header = ["PDB_ID", "status", "memo", "Title", "Release Date", "Deposition Date", "Experimental Method", "Resolution", "PubMed ID", "DOI", "Journal", "Journal Volume", "Page First", "Page Last", "Year", "Taxonomy", "Sequence Length", "Num TM Segments", "UniProt ID", "Classification"]
-    const sortedData = [...data].sort((a, b) => {
-      const dateA = new Date(a.release_date)
-      const dateB = new Date(b.release_date)
-      return sortDesc ? dateB - dateA : dateA - dateB
-    })
+	const header = [
+	"PDB_ID","status","memo","Title","Release Date",
+	"Experimental Method","Resolution","PubMed ID","DOI","Journal",
+	"Journal Volume","Page First","Page Last","Year",
+	"TM Segments (UniProt)","Sequence Length","UniProt ID","Classification"
+	];
 
-    const rows = sortedData.map(row => [
-      row.pdb_id,
-      row.status || "",
-      row.memo || "",
-      row.title || "",
-      row.release_date || "",
-      row.deposition_date || "",
-      row.experimental_method || "",
-      row.resolution || "",
-      row.pubmed_id || "",
-      row.doi || "",
-      row.journal || "",
-      row.journal_volume || "",
-      row.page_first || "",
-      row.page_last || "",
-      row.year || "",
-      row.taxonomy || "",
-      row.sequence_length || "",
-      row.num_tm_segments || "",
-      row.uniprot_id || "",
-      row.classification || ""
-    ])
+	const sortedData = [...data].sort((a,b) => (
+	(sortDesc ? 1 : -1) * (new Date(b.release_date) - new Date(a.release_date))
+	));
+
+	const rows = sortedData.map(row => [
+	row.pdb_id,
+	row.status || "",
+	row.memo || "",
+	row.title || "",
+	row.release_date || "",
+	row.experimental_method || "",
+	row.resolution || "",
+	row.pubmed_id || "",
+	row.doi || "",
+	row.journal || "",
+	row.journal_volume || "",
+	row.page_first || "",
+	row.page_last || "",
+	row.year || "",
+	(row.num_tm_segments ?? ""),          // <-- only once
+	row.sequence_length ?? "",
+	row.uniprot_id || "",
+	row.classification || ""
+	]);							
 
     const csvContent = [header, ...rows]
       .map(e => e.map(field => `"${String(field).replace(/"/g, '""')}"`).join(","))
@@ -260,26 +290,38 @@ return (
         return sortDesc ? dateB - dateA : dateA - dateB;
       })
       .map(([pubmed, group]) => {
-        const first = group[0];
-	    const idLower = first.pdb_id?.toLowerCase();
-	    const modelThumb = `https://cdn.rcsb.org/images/structures/${idLower}_model-1.jpeg`;
+        const firstOfGroup = group[0];
 
-        // filtering
-        const filtered = group.filter((row) => {
+		// apply status filter
+		const filtered = group.filter((row) => {
 		  const status = (row.status || '').trim().toLowerCase();
 		  const filter = filterstatus.trim().toLowerCase();
 		  if (filter === '__all__') return true;
 		  if (filter === '__empty__') return status === '';
 		  return status === filter;
 		});
-        if (filterPdb && !group.some((r) => r.pdb_id.toLowerCase().includes(filterPdb.toLowerCase()))) return null;
-        if (filtered.length === 0) return null;
 
-        // computed displays
-        const releaseDates = [...new Set(group.map((e) => e.release_date).filter(Boolean))].join(', ');
-        const classifications = [...new Set(group.map((e) => e.classification).filter(Boolean))]
-          .sort((x, y) => ['Multi-Pass', 'Single-Pass', 'Peripheral', 'non-membrane'].indexOf(x) - ['Multi-Pass', 'Single-Pass', 'Peripheral', 'non-membrane'].indexOf(y))
-          .join(', ');
+		// PDB search filter
+		if (filterPdb && !group.some(r => r.pdb_id.toLowerCase().includes(filterPdb.toLowerCase()))) {
+		  return null;
+		}
+		if (filtered.length === 0) return null;
+
+		// everything below should use `rows` (the filtered set)
+		const rows = filtered;
+		const first = rows[0];
+		const idLower = first.pdb_id?.toLowerCase();
+		const modelThumb = `https://cdn.rcsb.org/images/structures/${idLower}_model-1.jpeg`;
+
+		// computed displays should use `rows`
+		const releaseDates = [...new Set(rows.map(e => e.release_date).filter(Boolean))].join(', ');
+
+		// keep unknown classifications at the end
+		const order = ["Multi-Pass","Single-Pass","Peripheral","non-membrane"];
+		const oidx = (s) => { const i = order.indexOf(s); return i === -1 ? 999 : i; };
+		const classifications = [...new Set(rows.map(e => e.classification).filter(Boolean))]
+		  .sort((x,y) => oidx(x) - oidx(y))
+		  .join(', ');
 
         const expanded = visibleGroups[pubmed];
 		
@@ -308,21 +350,26 @@ return (
                   </a>
                 </p>
 
-                <p>
-                  <strong>Journal:</strong><br />
-                  <span>
-                    ({first.year || 'N/A'}) {first.journal || 'N/A'} {first.journal_volume || ' '}:{' '}
-                    {first.page_first || ' '}
-                    {first.page_first !== first.page_last && <> - {first.page_last || ' '}</>}
-                  </span>
-                  <br />
-                  {first.citationtitle && <div><em style={{ color: '#555' }}>{first.citationtitle}</em></div>}
-                  {first.doi && (
-                    <a href={`https://doi.org/${first.doi}`} target="_blank" rel="noopener noreferrer">
-                      https://doi.org/{first.doi}
-                    </a>
-                  )}
-                </p>
+                <div>
+				  <strong>Journal:</strong><br />
+				  <span>
+					({first.year || 'N/A'}) {first.journal || 'N/A'} {first.journal_volume || ' '}:{' '}
+					{first.page_first || ' '}
+					{first.page_first !== first.page_last && <> - {first.page_last || ' '}</>}
+				  </span>
+				  <br />
+				  {first.citationtitle && (
+					<span style={{ display: "block" }}>
+					  <em style={{ color: "#555" }}>{first.citationtitle}</em>
+					</span>
+				  )}
+				  {first.doi && (
+					<a href={`https://doi.org/${first.doi}`} target="_blank" rel="noopener noreferrer">
+					  https://doi.org/{first.doi}
+					</a>
+				  )}
+				</div>
+
 
                 <p><strong>Title:</strong> {first.title || 'N/A'}</p>
 
@@ -336,9 +383,10 @@ return (
                 </div>
 
                 <p><strong>Release Date(s):</strong> {releaseDates}</p>
-                <p><strong>Taxonomy:</strong> {Array.isArray(first.taxonomy)
-				  ? (first.taxonomy.length ? first.taxonomy.join(', ') : 'N/A')
-				  : (first.taxonomy || 'N/A')}</p>
+                <p>
+				  <strong>TM segments (UniProt):</strong> {rowInt(first.num_tm_segments)}
+				</p>
+
                 <p><strong>Resolution:</strong> {first.resolution ? `${first.resolution} Å` : 'N/A'}</p>
 
                 <p><strong>UniProt ID(s):</strong>{' '}
@@ -359,7 +407,6 @@ return (
                 </p>
 
 				{(() => {
-				  // Normalize arrays				  
 				  const groups = Array.isArray(first.subgroup)
 					? first.subgroup
 					: first.subgroup != null && first.subgroup !== ""
@@ -375,8 +422,8 @@ return (
 				  const maxN = Math.max(groups.length, scores.length);
 				  if (maxN === 0) return null;
 
-				  // Label order: 0 = Text model (title classifier), 1 = Image model (static image)
-				  const modelNames = ["Text model on title", "Image model on 2D"];
+				  // ⬇️ NEW: 3 labels (title, 2D image, abstract)
+				  const modelNames = MODEL_NAMES;
 
 				  const rows = [];
 				  for (let i = 0; i < maxN; i++) {
@@ -384,7 +431,8 @@ return (
 
 					const candidate = Array.isArray(groups) ? groups[i] : undefined;
 					const fallback  = groups.length ? groups[0] : "";
-					const cls = (candidate ?? fallback) || "";
+					const rawCls    = (candidate ?? fallback) || "";
+					const cls       = prettifyClassLabel(rawCls); // ⬅️ prettify
 
 					const raw = Array.isArray(scores) ? scores[i] : undefined;
 					let pctText = "";
@@ -414,6 +462,7 @@ return (
 					</div>
 				  );
 				})()}
+
 
 
                 {/* Status / Metadata / Memo row */}
@@ -490,11 +539,9 @@ return (
 					<StructureViewerInline
 					  key={first.pdb_id}
 					  pdbId={first.pdb_id}
-					  thumbUrl={modelThumb}      // prefer model-1.jpeg
-					  canExpand={group.length > 1}
-					  onExpand={() =>
-						setVisibleGroups(prev => ({ ...prev, [pubmed]: !expanded }))
-					  }
+					  thumbUrl={modelThumb}
+					  canExpand={rows.length > 1}
+					  onExpand={() => setVisibleGroups(prev => ({ ...prev, [pubmed]: !expanded }))}
 					/>
                 </div>
               </div>
@@ -510,7 +557,10 @@ return (
                   <p><strong>PDB ID:</strong> {row.pdb_id}</p>
                   <p><strong>Title:</strong> {row.title}</p>
                   <p><strong>Release Date:</strong> {row.release_date || 'N/A'}</p>
-                  <p><strong>Taxonomy:</strong> {row.taxonomy || 'N/A'}</p>
+					<p>
+					  <strong>TM segments (UniProt):</strong> {rowInt(row.num_tm_segments)}
+					</p>
+
                   <p><strong>Resolution:</strong> {row.resolution || 'N/A'}</p>
                   <p><strong>UniProt:</strong> <a href={`https://www.uniprot.org/uniprotkb/${row.uniprot_id}`} target="_blank" rel="noopener noreferrer">{row.uniprot_id}</a></p>
                   <p><strong>Classification:</strong> {row.classification || 'N/A'}</p>
