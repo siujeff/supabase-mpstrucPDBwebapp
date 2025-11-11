@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { supabase } from './supabaseClient'
 import StructureViewerInline from './StructureViewerInline.jsx';
 
@@ -71,90 +71,106 @@ function formatPredictions(subgroup, subgroupscore) {
 }
 
 function App() {
-  const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [visibleGroups, setVisibleGroups] = useState({})
-  const [filterstatus, setFilterstatus] = useState('__ALL__')
-  const [sortDesc, setSortDesc] = useState(true)
-  const [authorized, setAuthorized] = useState(false)
-  const [passwordInput, setPasswordInput] = useState('')
-  const correctPassword = process.env.REACT_APP_PROTECT_PASS
-  const [searchPdb, setSearchPdb] = useState('');
-  const [filterPdb, setFilterPdb] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [modalData, setModalData] = useState(null);
-  const [editedMetadata, setEditedMetadata] = useState({});
-  const primaryThumbByPubmed = useRef({});
+	const [data, setData] = useState([])
+	const [visibleGroups, setVisibleGroups] = useState({})
+	const [filterstatus, setFilterstatus] = useState('__ALL__')
+	const [sortDesc, setSortDesc] = useState(true)
+	const [authorized, setAuthorized] = useState(false)
+	const [passwordInput, setPasswordInput] = useState('')
+	const correctPassword = process.env.REACT_APP_PROTECT_PASS
+	const [searchPdb, setSearchPdb] = useState('');
+	const [filterPdb, setFilterPdb] = useState('');
+	const [showModal, setShowModal] = useState(false);
+	const [modalData, setModalData] = useState(null);
+	const [editedMetadata, setEditedMetadata] = useState({});
+	const primaryThumbByPubmed = useRef({});
+	const reqIdRef = useRef(0);
+	const scrollRef = useRef(0);
+	const [isInitialLoading, setIsInitialLoading] = useState(true);  // first load only
+	const [isRefreshing, setIsRefreshing] = useState(false);         // subsequent refreshes
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+	async function fetchData({ retries = 2, mode = 'refresh' } = {}) {
+	  const myReqId = ++reqIdRef.current;
+	  const setLoad = mode === 'initial' ? setIsInitialLoading : setIsRefreshing;
 
-	async function fetchData() {
-	  const { data: rows, error } = await supabase
-		.from('v_pdb_membrane_records_compat')
-		.select(`
-		  pdb_id,
-		  title,
-		  release_date,
-		  experimental_method,
-		  resolution,
-		  pubmed_id,
-		  doi,
-		  journal,
-		  journal_volume,
-		  page_first,
-		  page_last,
-		  year,
-		  sequence_length,
-		  num_tm_segments,
-		  uniprot_id,
-		  classification,
-		  status,
-		  memo,
-		  citationtitle,
-		  subgroup,
-		  subgroupscore
-		`)
-		.order('release_date', { ascending: false });
+	  if (mode === 'refresh') scrollRef.current = window.scrollY;
+	  setLoad(true);
 
-	  if (error) {
-		console.error('Fetch error:', error);
-		setData([]);
-	  } else {
-		// If you want to see everything while debugging, don’t filter yet:
-		// setData(rows || []);
-		// If you really want to hide rows missing pmid, keep this:
-		setData((rows || []).filter(r => r.pubmed_id));
-		console.log('Fetched rows:', (rows || []).length);
+	  let lastErr = null;
+
+	  for (let attempt = 0; attempt <= retries; attempt++) {
+		try {
+		  const { data: rows, error } = await supabase
+			.from('v_pdb_membrane_records_compat')
+			.select(`
+			  pdb_id, title, release_date, experimental_method, resolution,
+			  pubmed_id, doi, journal, journal_volume, page_first, page_last, year,
+			  sequence_length, num_tm_segments, uniprot_id, classification,
+			  status, memo, citationtitle, subgroup, subgroupscore
+			`)
+			.order('release_date', { ascending: false });
+
+		  if (error) throw error;
+		  if (myReqId !== reqIdRef.current) return;
+
+		  setData((rows || []).filter(r => !!r.pubmed_id));
+		  setLoad(false);
+
+		  if (mode === 'refresh') requestAnimationFrame(() =>
+			window.scrollTo(0, scrollRef.current)
+		  );
+		  return;
+		} catch (err) {
+		  lastErr = err;
+		  await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+		}
 	  }
-	  setLoading(false);
+
+	  if (myReqId !== reqIdRef.current) return;
+	  setLoad(false);
+
+	  if (mode === 'initial') setData([]);
+	  console.error('fetchData failed:', lastErr);
 	}
+	const grouped = useMemo(() => {
+	  return data.reduce((acc, item) => {
+		(acc[item.pubmed_id] ??= []).push(item);
+		return acc;
+	  }, {});
+	}, [data]);
+	
+	// fetch when unlocked
+	useEffect(() => {
+	  if (authorized) fetchData({ retries: 2, mode: 'initial' });
+	}, [authorized]);
 
 
 	async function updateGroup(pubmedId, newstatus, newMemo) {
-	  const entriesToUpdate = data.filter(e => e.pubmed_id === pubmedId);
+	  // (optional) optimistic UI to avoid any flicker at all
+	  setData(prev =>
+		prev.map(r => r.pubmed_id === pubmedId
+		  ? { ...r, status: newstatus ?? r.status, memo: newMemo ?? r.memo }
+		  : r)
+	  );
 
-	  const normStatus = (s) =>
-		s === undefined || s === null || String(s).trim() === "" ? null : String(s);
+	  const rows = data.filter(e => e.pubmed_id === pubmedId);
+	  const normStatus = s => (s == null || String(s).trim() === '' ? null : String(s));
 
-	  for (const e of entriesToUpdate) {
-		const { error } = await supabase.rpc('upsert_note', {
-		  p_pubmed_id: String(e.pubmed_id),
-		  p_pdb_id:    String(e.pdb_id),
-		  p_status:    normStatus(newstatus ?? e.status),
-		  p_memo:      (newMemo ?? e.memo ?? "").toString(),
-		});
-		if (error) {
-		  console.error('upsert_note error', error);
-		  alert(`❌ Failed to save note/status.\n${error.message || ''}`);
-		  return;
+	  try {
+		for (const e of rows) {
+		  const { error } = await supabase.rpc('upsert_note', {
+			p_pubmed_id: String(e.pubmed_id),
+			p_pdb_id: String(e.pdb_id),
+			p_status: normStatus(newstatus ?? e.status),
+			p_memo: (newMemo ?? e.memo ?? '').toString(),
+		  });
+		  if (error) throw error;
 		}
+		await fetchData({ retries: 1, mode: 'refresh' }); // no jump
+	  } catch (err) {
+		alert(`❌ Failed to save note/status.\n${err?.message || err}`);
 	  }
-	  fetchData();
 	}
-																																									
-
 
   function exportToCSV() {
 	const header = [
@@ -183,7 +199,7 @@ function App() {
 	row.page_first || "",
 	row.page_last || "",
 	row.year || "",
-	(row.num_tm_segments ?? ""),          // <-- only once
+	(row.num_tm_segments ?? ""),
 	row.sequence_length ?? "",
 	row.uniprot_id || "",
 	row.classification || ""
@@ -231,21 +247,23 @@ function App() {
     )
   }
 
-  if (loading) return <p style={{ padding: 20 }}>Loading data...</p>
-
-  const grouped = data.reduce((acc, item) => {
-    if (!acc[item.pubmed_id]) acc[item.pubmed_id] = []
-    acc[item.pubmed_id].push(item)
-    return acc
-  }, {})
-
-  // The rest of your rendering logic stays the same...
+	// Replace: if (loading) return <p>Loading...</p>
+	if (isInitialLoading) return <p style={{ padding: 20 }}>Loading data...</p>;
 
 return (
-  <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: 1200, margin: '0 auto' }}>
+	<div style={{ padding: 20, fontFamily: 'Arial', maxWidth: 1200, margin: '0 auto' }}>
+	{isRefreshing && (
+	  <div style={{
+		position: 'fixed', top: 12, right: 12, zIndex: 9999,
+		padding: '6px 10px', borderRadius: 6,
+		background: 'rgba(0,0,0,0.6)', color: '#fff'
+	  }}>
+		Refreshing…
+	  </div>
+    )}
     {/* Header + controls */}
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <h1>🧬 mpstruc Data Browser</h1>
+      <h1>mpstruc Browser 🧬</h1>
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
         <label htmlFor="statusFilter" style={{ marginRight: 6 }}>Filter by IsMembraneProtein:</label>
         <select
@@ -290,7 +308,6 @@ return (
         return sortDesc ? dateB - dateA : dateA - dateB;
       })
       .map(([pubmed, group]) => {
-        const firstOfGroup = group[0];
 
 		// apply status filter
 		const filtered = group.filter((row) => {
@@ -327,8 +344,7 @@ return (
 		
 		if (!primaryThumbByPubmed.current[pubmed]) {
 		  primaryThumbByPubmed.current[pubmed] = group[0]?.pdb_id || '';
-		}
-		const primaryPdbId = primaryThumbByPubmed.current[pubmed];
+		}	
 		
         return (
           <div key={pubmed} style={{ border: '1px solid #ccc', marginBottom: 20, padding: 10 }}>
@@ -463,9 +479,7 @@ return (
 				  );
 				})()}
 
-
-
-                {/* Status / Metadata / Memo row */}
+                {/* Status / Metadata (WIP)/ Memo row */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   <label htmlFor={`status-${pubmed}`}>IsMembraneProtein:</label>
                   <select
