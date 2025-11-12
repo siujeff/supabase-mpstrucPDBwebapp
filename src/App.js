@@ -19,7 +19,7 @@ const rowInt = (v) => {
   const s = String(v).trim();
   if (s === "" || s.toLowerCase() === "null" || s.toLowerCase() === "nan") return "N/A";
   const n = Number(s);
-  return Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : "N/A";
+  return Number.isFinite(n) && n >= 0 ? String(Math.trunc(n)) : "N/A";
 };
 
 function prettifyClassLabel(s) {
@@ -399,9 +399,22 @@ return (
                 </div>
 
                 <p><strong>Release Date(s):</strong> {releaseDates}</p>
-                <p>
-				  <strong>TM segments (UniProt):</strong> {rowInt(first.num_tm_segments)}
-				</p>
+				{(() => {
+					// collect unique labels using your rowInt (0→N/A)
+					const labels = [...new Set(rows.map(r => rowInt(r.num_tm_segments)))];
+					const nums   = labels.filter(v => v !== 'N/A').map(Number).sort((a,b) => a - b);
+					const hasNA  = labels.includes('N/A');
+
+					// Build display: "3, 4" or "3, 4 (some N/A)" or just "N/A"
+					let text = nums.length ? nums.join(', ') : '';
+					if (hasNA && nums.length === 0) text = 'N/A';
+					else if (hasNA && nums.length > 0) text += ' (some N/A)';
+
+					return (
+					  <p><strong>Number of TM segment:</strong> {text || 'N/A'}</p>
+					);
+				})()}
+
 
                 <p><strong>Resolution:</strong> {first.resolution ? `${first.resolution} Å` : 'N/A'}</p>
 
