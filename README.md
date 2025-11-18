@@ -2,8 +2,6 @@
 
 A React-based web app for exploring and labeling PDB membrane protein records from the mpstruc database, powered by Supabase and machine learning.
 
-![Screenshot](public/images/logo.png)
-
 ## Features
 - Search by PDB ID
 - View prediction group and score
@@ -19,3 +17,6 @@ git clone https://github.com/<you>/<repo>.git
 cd <repo>
 npm install
 npm start
+
+## Preview
+![mpstruc browser](assets/preview.gif)
